@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  frigate:
+    build: .
+    container_name: frigate-server
+    ports:
+      - "57001:57001"
+    volumes:
+      # Persistent storage for Frigate configuration and database
+      - frigate-data:/home/frigate/.frigate
+      # Optional: mount Bitcoin Core data directory if running locally
+      # - /path/to/bitcoin/data:/bitcoin:ro
+    environment:
+      # Optional: override network (mainnet, testnet, signet)
+      - FRIGATE_NETWORK=mainnet
+    restart: unless-stopped
+    # Uncomment and configure if you have a local Bitcoin Core instance
+    # depends_on:
+    #   - bitcoind
+    
+  # Uncomment this section if you want to run Bitcoin Core in a container
+  # bitcoind:
+  #   image: kylemanna/bitcoind:latest
+  #   container_name: bitcoind
+  #   ports:
+  #     - "8332:8332"
+  #     - "8333:8333"
+  #   volumes:
+  #     - bitcoin-data:/bitcoin/.bitcoin
+  #   command: >
+  #     bitcoind
+  #     -printtoconsole
+  #     -server=1
+  #     -rpcallowip=0.0.0.0/0
+  #     -rpcbind=0.0.0.0:8332
+  #     -txindex=1
+  #   restart: unless-stopped
+
+  # CLI client for testing
+  frigate-cli:
+    build: .
+    container_name: frigate-cli
+    command: ["frigate-cli", "-h"]
+    profiles:
+      - cli
+    depends_on:
+      - frigate
+
+volumes:
+  frigate-data:
+    driver: local
+  # bitcoin-data:
+  #   driver: local

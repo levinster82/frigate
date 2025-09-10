@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+.gradle/
+out/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local configuration
+*.properties
+
+# Git (we copy .git explicitly in Dockerfile for submodules)
+# Uncomment if you don't want git history in build context
+# .git
+
+# Documentation that's not needed in container
+README.md
+LICENSE
+*.png
+*.svg
+
+# Development scripts
+build-*.sh

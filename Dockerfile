@@ -25,18 +25,41 @@ COPY src src/
 # Build the application
 RUN chmod +x ./gradlew && ./gradlew build --no-daemon
 
-# Create distribution
-RUN ./gradlew jlink --no-daemon
+# Create working runtime using traditional JAR approach
+RUN ./gradlew build --no-daemon && \
+    mkdir -p build/runtime/bin && \
+    mkdir -p build/runtime/lib && \
+    cp -r $JAVA_HOME/bin/* build/runtime/bin/ && \
+    cp -r $JAVA_HOME/lib/* build/runtime/lib/ && \
+    cp -r $JAVA_HOME/conf build/runtime/ && \
+    echo '#!/bin/sh' > build/runtime/bin/frigate && \
+    echo 'DIR="$(cd "$(dirname "$0")" && pwd)"' >> build/runtime/bin/frigate && \
+    echo '"$DIR/java" -cp "$DIR/../lib/*" com.sparrowwallet.frigate.Frigate "$@"' >> build/runtime/bin/frigate && \
+    chmod +x build/runtime/bin/frigate && \
+    echo '#!/bin/sh' > build/runtime/bin/frigate-cli && \
+    echo 'DIR="$(cd "$(dirname "$0")" && pwd)"' >> build/runtime/bin/frigate-cli && \
+    echo '"$DIR/java" -cp "$DIR/../lib/*" com.sparrowwallet.frigate.cli.FrigateCli "$@"' >> build/runtime/bin/frigate-cli && \
+    chmod +x build/runtime/bin/frigate-cli && \
+    cp build/libs/*.jar build/runtime/lib/ && \
+    cp drongo/build/libs/*.jar build/runtime/lib/ 2>/dev/null || true && \
+    find ~/.gradle/caches -name "*.jar" -path "*/modules-2/files-2.1/*" -exec cp {} build/runtime/lib/ \; 2>/dev/null || true
 
 # Runtime stage - minimal JRE image
 FROM ubuntu:22.04
 
-# Install required runtime dependencies
+# Install required runtime dependencies and debugging tools
 RUN apt-get update && \
     apt-get install -y \
     ca-certificates \
     curl \
     net-tools \
+    file \
+    nano \
+    vim \
+    strace \
+    ltrace \
+    lsof \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Create frigate user
@@ -46,8 +69,8 @@ RUN useradd -r -s /bin/false frigate
 RUN mkdir -p /opt/frigate /home/frigate/.frigate && \
     chown -R frigate:frigate /opt/frigate /home/frigate
 
-# Copy built application from builder stage
-COPY --from=builder --chown=frigate:frigate /app/build/image/ /opt/frigate/
+# Copy built application from builder stage (using manual runtime)
+COPY --from=builder --chown=frigate:frigate /app/build/runtime/ /opt/frigate/
 
 # Set up environment
 ENV PATH="/opt/frigate/bin:$PATH"

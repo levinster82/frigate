@@ -15,9 +15,8 @@ COPY settings.gradle build.gradle ./
 # Note: This requires the build context to include .git directory
 COPY .git .git/
 COPY .gitmodules .gitmodules
-# Configure git to use HTTPS instead of SSH for GitHub
-RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
-    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && \
+# Explicitly set submodule URL to HTTPS and initialize
+RUN git submodule set-url drongo https://github.com/sparrowwallet/drongo.git && \
     git submodule update --init --recursive
 
 # Copy source code

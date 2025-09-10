@@ -15,7 +15,10 @@ COPY settings.gradle build.gradle ./
 # Note: This requires the build context to include .git directory
 COPY .git .git/
 COPY .gitmodules .gitmodules
-RUN git submodule update --init --recursive
+# Configure git to use HTTPS instead of SSH for GitHub
+RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
+    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && \
+    git submodule update --init --recursive
 
 # Copy source code
 COPY src src/

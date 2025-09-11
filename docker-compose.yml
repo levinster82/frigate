@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   frigate:
     build: .
@@ -9,8 +7,8 @@ services:
     volumes:
       # Persistent storage for Frigate configuration and database
       - frigate-data:/home/frigate/.frigate
-      # Optional: mount Bitcoin Core data directory if running locally
-      # - /path/to/bitcoin/data:/bitcoin:ro
+      # Mount Bitcoin Core data directory at expected location
+      - /bitcoin/.bitcoin:/home/frigate/.bitcoin:ro
     environment:
       # Optional: override network (mainnet, testnet, signet)
       - FRIGATE_NETWORK=mainnet
@@ -38,14 +36,14 @@ services:
   #   restart: unless-stopped
 
   # CLI client for testing
-  frigate-cli:
-    build: .
-    container_name: frigate-cli
-    command: ["frigate-cli", "-h"]
-    profiles:
-      - cli
-    depends_on:
-      - frigate
+  # frigate-cli:
+  #   build: .
+  #   container_name: frigate-cli
+  #   command: ["frigate-cli", "-h"]
+  #   profiles:
+  #     - cli
+  #   depends_on:
+  #     - frigate
 
 volumes:
   frigate-data:

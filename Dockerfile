@@ -1,21 +1,20 @@
-# Multi-stage Dockerfile for Frigate Bitcoin Silent Payments Server
 FROM eclipse-temurin:22-jdk-jammy AS builder
 
-# Install git for submodule handling
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+# Install git for submodules
+RUN apt-get update && \
+    apt-get install -y git && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy gradle wrapper and build files
+# Copy gradle wrapper and build files  
 COPY gradlew gradlew.bat ./
 COPY gradle gradle/
 COPY settings.gradle build.gradle ./
 
 # Initialize git repository and add submodules
-# Note: This requires the build context to include .git directory
 COPY .git .git/
 COPY .gitmodules .gitmodules
-# Explicitly set submodule URL to HTTPS and initialize
 RUN git submodule set-url drongo https://github.com/sparrowwallet/drongo.git && \
     git submodule update --init --recursive
 
@@ -25,67 +24,54 @@ COPY src src/
 # Build the application
 RUN chmod +x ./gradlew && ./gradlew build --no-daemon
 
-# Create working runtime using traditional JAR approach
-RUN ./gradlew build --no-daemon && \
-    mkdir -p build/runtime/bin && \
-    mkdir -p build/runtime/lib && \
-    cp -r $JAVA_HOME/bin/* build/runtime/bin/ && \
-    cp -r $JAVA_HOME/lib/* build/runtime/lib/ && \
-    cp -r $JAVA_HOME/conf build/runtime/ && \
-    echo '#!/bin/sh' > build/runtime/bin/frigate && \
-    echo 'DIR="$(cd "$(dirname "$0")" && pwd)"' >> build/runtime/bin/frigate && \
-    echo '"$DIR/java" -cp "$DIR/../lib/*" com.sparrowwallet.frigate.Frigate "$@"' >> build/runtime/bin/frigate && \
-    chmod +x build/runtime/bin/frigate && \
-    echo '#!/bin/sh' > build/runtime/bin/frigate-cli && \
-    echo 'DIR="$(cd "$(dirname "$0")" && pwd)"' >> build/runtime/bin/frigate-cli && \
-    echo '"$DIR/java" -cp "$DIR/../lib/*" com.sparrowwallet.frigate.cli.FrigateCli "$@"' >> build/runtime/bin/frigate-cli && \
-    chmod +x build/runtime/bin/frigate-cli && \
-    cp build/libs/*.jar build/runtime/lib/ && \
-    cp drongo/build/libs/*.jar build/runtime/lib/ 2>/dev/null || true && \
-    find ~/.gradle/caches -name "*.jar" -path "*/modules-2/files-2.1/*" -exec cp {} build/runtime/lib/ \; 2>/dev/null || true
+# Create optimized runtime using jlink + classpath approach
+RUN ./gradlew jlink --no-daemon && \
+    cd build/image && \
+    rm -f lib/jrt-fs.jar && \
+    cp /app/build/libs/*.jar lib/ && \
+    cp /app/drongo/build/libs/*.jar lib/ && \
+    find ~/.gradle/caches -name "*.jar" -path "*/modules-2/files-2.1/*" -exec cp {} lib/ \; && \
+    mkdir -p bin && \
+    echo '#!/bin/sh' > bin/frigate && \
+    echo 'DIR="$(cd "$(dirname "$0")" && pwd)"' >> bin/frigate && \
+    echo 'exec java -cp "$DIR/../lib/*" com.sparrowwallet.frigate.Frigate "$@"' >> bin/frigate && \
+    chmod +x bin/frigate
 
-# Runtime stage - minimal JRE image
-FROM ubuntu:22.04
+# Runtime stage
+FROM eclipse-temurin:22-jre-jammy
 
-# Install required runtime dependencies and debugging tools
+# Install runtime dependencies
 RUN apt-get update && \
     apt-get install -y \
     ca-certificates \
-    curl \
     net-tools \
-    file \
-    nano \
-    vim \
-    strace \
-    ltrace \
-    lsof \
-    procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Create frigate user
-RUN useradd -r -s /bin/false frigate
+# Create frigate user with uid/gid 1000
+RUN groupadd -g 1000 frigate && \
+    useradd -u 1000 -g 1000 -r -s /bin/false frigate
 
-# Create necessary directories
+# Create directories
 RUN mkdir -p /opt/frigate /home/frigate/.frigate && \
     chown -R frigate:frigate /opt/frigate /home/frigate
 
-# Copy built application from builder stage (using manual runtime)
-COPY --from=builder --chown=frigate:frigate /app/build/runtime/ /opt/frigate/
+# Copy optimized runtime
+COPY --from=builder --chown=frigate:frigate /app/build/image/ /opt/frigate/
 
-# Set up environment
+# Set environment
 ENV PATH="/opt/frigate/bin:$PATH"
 ENV FRIGATE_HOME="/home/frigate/.frigate"
 
-# Expose Frigate Electrum server port (DEFAULT_PORT = 57001)
+# Expose port
 EXPOSE 57001
 
 # Switch to frigate user
 USER frigate
 WORKDIR /home/frigate
 
-# Health check - using netstat since Frigate uses raw TCP sockets, not HTTP
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD netstat -tln | grep :57001 || exit 1
 
-# Default command runs the main Frigate server
+# Default command
 CMD ["frigate"]

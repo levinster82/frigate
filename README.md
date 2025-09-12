@@ -1,9 +1,9 @@
 
 # (this fork)Dockerfile work in progress.
 
-### Latest image available at docker.io/levinster82/frigate:v1.0.0
+### Latest image available at docker.io/levinster82/frigate:v1.0.0_09122025_2
 
-# Only use for testing!!! Code heavily influenced by Claude Sonnet!!!
+## Only use for testing!!! Code heavily influenced by Claude Sonnet!!!
 
 
 ![Frigate logo](https://github.com/sparrowwallet/frigate/raw/refs/heads/master/frigatelogo.png)

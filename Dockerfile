@@ -56,6 +56,7 @@ RUN mkdir -p /opt/frigate /home/frigate/.frigate && \
     chown -R frigate:frigate /opt/frigate /home/frigate
 
 
+
 # Copy optimized runtime
 COPY --from=builder --chown=frigate:frigate /app/build/image/ /opt/frigate/
 
@@ -66,8 +67,8 @@ ENV FRIGATE_HOME="/home/frigate/.frigate"
 # Expose port
 EXPOSE 57001
 
-# Ensure we're running as root for startup script
-USER root
+# Switch to frigate user
+USER frigate
 WORKDIR /home/frigate
 
 # Health check

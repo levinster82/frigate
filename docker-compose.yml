@@ -8,45 +8,31 @@ services:
       # Persistent storage for Frigate configuration and database
       - frigate-data:/home/frigate/.frigate
       # Mount Bitcoin Core data directory at expected location
-      - /bitcoin/.bitcoin:/home/frigate/.bitcoin:ro
+      # - /bitcoin/.bitcoin:/home/frigate/.bitcoin:ro
     environment:
-      # Optional: override network (mainnet, testnet, signet)
+      # Network to use: mainnet, testnet, signet (default: mainnet)
       - FRIGATE_NETWORK=mainnet
-    restart: unless-stopped
-    # Uncomment and configure if you have a local Bitcoin Core instance
-    # depends_on:
-    #   - bitcoind
-    
-  # Uncomment this section if you want to run Bitcoin Core in a container
-  # bitcoind:
-  #   image: kylemanna/bitcoind:latest
-  #   container_name: bitcoind
-  #   ports:
-  #     - "8332:8332"
-  #     - "8333:8333"
-  #   volumes:
-  #     - bitcoin-data:/bitcoin/.bitcoin
-  #   command: >
-  #     bitcoind
-  #     -printtoconsole
-  #     -server=1
-  #     -rpcallowip=0.0.0.0/0
-  #     -rpcbind=0.0.0.0:8332
-  #     -txindex=1
-  #   restart: unless-stopped
+      
+      # Log level: trace, debug, info, warn, error (default: info)
+      - FRIGATE_LOG_LEVEL=info
+      
+      # Custom Frigate home directory (default: /home/frigate/.frigate)
+      # - FRIGATE_DIR=/custom/frigate/path
 
-  # CLI client for testing
-  # frigate-cli:
-  #   build: .
-  #   container_name: frigate-cli
-  #   command: ["frigate-cli", "-h"]
-  #   profiles:
-  #     - cli
-  #   depends_on:
-  #     - frigate
+    restart: unless-stopped
 
 volumes:
   frigate-data:
     driver: local
-  # bitcoin-data:
-  #   driver: local
+
+# The application creates a config file at /home/frigate/.frigate/config
+# Default config example:
+# {
+#   "coreServer": "http://127.0.0.1:8332",
+#   "coreAuthType": "COOKIE",              // "COOKIE" or "USERPASS"
+#   "coreDataDir": "/home/frigate/.bitcoin",
+#   "coreAuth": "bitcoin:password",
+#   "startIndexing": true,
+#   "indexStartHeight": 709632,            // Taproot activation height (mainnet)
+#   "scriptPubKeyCacheSize": 10000000
+# }

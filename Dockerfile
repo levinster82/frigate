@@ -55,6 +55,7 @@ RUN groupadd -g 1000 frigate && \
 RUN mkdir -p /opt/frigate /home/frigate/.frigate && \
     chown -R frigate:frigate /opt/frigate /home/frigate
 
+
 # Copy optimized runtime
 COPY --from=builder --chown=frigate:frigate /app/build/image/ /opt/frigate/
 
@@ -65,13 +66,43 @@ ENV FRIGATE_HOME="/home/frigate/.frigate"
 # Expose port
 EXPOSE 57001
 
-# Switch to frigate user
-USER frigate
+# Ensure we're running as root for startup script
+USER root
 WORKDIR /home/frigate
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD netstat -tln | grep :57001 || exit 1
 
+# Create startup script to handle environment variables
+RUN echo '#!/bin/sh\n\
+# Build frigate command with environment variables\n\
+FRIGATE_ARGS=""\n\
+\n\
+# Add directory argument if set\n\
+if [ -n "$FRIGATE_DIR" ]; then\n\
+    FRIGATE_ARGS="$FRIGATE_ARGS -d $FRIGATE_DIR"\n\
+fi\n\
+\n\
+# Add network argument if set\n\
+if [ -n "$FRIGATE_NETWORK" ]; then\n\
+    FRIGATE_ARGS="$FRIGATE_ARGS -n $FRIGATE_NETWORK"\n\
+fi\n\
+\n\
+# Add log level argument if set\n\
+if [ -n "$FRIGATE_LOG_LEVEL" ]; then\n\
+    FRIGATE_ARGS="$FRIGATE_ARGS -l $FRIGATE_LOG_LEVEL"\n\
+fi\n\
+\n\
+# Add any additional command line arguments\n\
+FRIGATE_ARGS="$FRIGATE_ARGS $*"\n\
+\n\
+# Start frigate directly\n\
+exec /opt/frigate/bin/frigate $FRIGATE_ARGS' > /opt/frigate/bin/start.sh && \
+    chmod +x /opt/frigate/bin/start.sh
+
+# Switch to frigate user
+USER frigate
+
 # Default command
-CMD ["frigate"]
+CMD ["/opt/frigate/bin/start.sh"]

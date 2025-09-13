@@ -1,109 +1,86 @@
-FROM eclipse-temurin:22-jdk-jammy AS builder
+# Multi-stage build for Frigate - Ubuntu-based amd64 image
+FROM eclipse-temurin:22-jdk AS builder
 
-# Install git for submodules
-RUN apt-get update && \
-    apt-get install -y git && \
-    rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# Copy gradle wrapper and build files  
-COPY gradlew gradlew.bat ./
-COPY gradle gradle/
-COPY settings.gradle build.gradle ./
-
-# Initialize git repository and add submodules
-COPY .git .git/
-COPY .gitmodules .gitmodules
-RUN git submodule set-url drongo https://github.com/sparrowwallet/drongo.git && \
-    git submodule update --init --recursive
-
-# Copy source code
-COPY src src/
-
-# Build the application
-RUN chmod +x ./gradlew && ./gradlew build --no-daemon
-
-# Create optimized runtime using jlink + classpath approach
-RUN ./gradlew jlink --no-daemon && \
-    cd build/image && \
-    rm -f lib/jrt-fs.jar && \
-    cp /app/build/libs/*.jar lib/ && \
-    cp /app/drongo/build/libs/*.jar lib/ && \
-    find ~/.gradle/caches -name "*.jar" -path "*/modules-2/files-2.1/*" -exec cp {} lib/ \; && \
-    mkdir -p bin && \
-    echo '#!/bin/sh' > bin/frigate && \
-    echo 'DIR="$(cd "$(dirname "$0")" && pwd)"' >> bin/frigate && \
-    echo 'exec java -cp "$DIR/../lib/*" com.sparrowwallet.frigate.Frigate "$@"' >> bin/frigate && \
-    chmod +x bin/frigate
-
-# Runtime stage
-FROM eclipse-temurin:22-jre-jammy
-
-# Install runtime dependencies
-RUN apt-get update && \
-    apt-get install -y \
-    ca-certificates \
-    net-tools \
+# Install required build dependencies (only git needed for installDist)
+RUN apt-get update && apt-get install -y \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Create frigate user with uid/gid 1000
-RUN groupadd -g 1000 frigate && \
-    useradd -u 1000 -g 1000 -r -s /bin/false frigate
+# Set working directory
+WORKDIR /app
 
-# Create directories
-RUN mkdir -p /opt/frigate /home/frigate/.frigate && \
-    chown -R frigate:frigate /opt/frigate /home/frigate
+# Copy gradle files first for better layer caching
+COPY build.gradle settings.gradle gradlew ./
+COPY gradle/ ./gradle/
 
+# Copy source code
+COPY src/ ./src/
 
+# Clone drongo dependency directly since git submodules won't work without .git
+RUN rm -rf drongo \
+    && git clone https://github.com/sparrowwallet/drongo.git drongo
 
-# Copy optimized runtime
-COPY --from=builder --chown=frigate:frigate /app/build/image/ /opt/frigate/
+# Remove Mac/Windows specific deployment resources to reduce image size
+RUN rm -rf src/main/deploy/package/macos/ \
+    src/main/deploy/package/windows/ \
+    && find drongo/src/main/resources/native -type d -name "osx" -exec rm -rf {} + \
+    && find drongo/src/main/resources/native -type d -name "windows" -exec rm -rf {} + \
+    || true
 
-# Set environment
-ENV PATH="/opt/frigate/bin:$PATH"
-ENV FRIGATE_HOME="/home/frigate/.frigate"
+# Configure Java preview features and remove Windows scripts
+RUN printf '\n// Docker build configuration\nallprojects {\n    compileJava {\n        options.compilerArgs += ["--enable-preview"]\n        options.release = 22\n    }\n}\nstartScripts {\n    doLast {\n        delete windowsScript\n    }\n}\n' >> build.gradle
 
-# Expose port
-EXPOSE 57001
+# Build the application - use installDist instead of jlink to avoid java executable issues
+RUN ./gradlew clean installDist --no-daemon
 
-# Switch to frigate user
+# Production stage - use Eclipse Temurin JRE which has Java 22 support
+FROM eclipse-temurin:22-jre
+
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    bash \
+    && rm -rf /var/lib/apt/lists/* \
+    && (getent passwd ubuntu && userdel ubuntu || true) \
+    && (getent group 1000 && groupdel $(getent group 1000 | cut -d: -f1) || true) \
+    && groupadd -r -g 1000 frigate \
+    && useradd -r -u 1000 -g frigate -s /bin/false frigate
+
+# Copy the Gradle-generated distribution
+COPY --from=builder /app/build/install/frigate /opt/frigate
+
+# Create frigate-cli executable since installDist only creates the main app
+RUN echo '#!/bin/bash' > /opt/frigate/bin/frigate-cli \
+    && echo 'exec java -cp "/opt/frigate/lib/*" com.sparrowwallet.frigate.cli.FrigateCli "$@"' >> /opt/frigate/bin/frigate-cli
+
+# Create data directory for frigate configuration
+RUN mkdir -p /home/frigate/.frigate \
+    && chown -R frigate:frigate /home/frigate
+
+# Set executable permissions for both binaries
+RUN chmod +x /opt/frigate/bin/frigate /opt/frigate/bin/frigate-cli
+
+# Verify build succeeded and all required files exist
+RUN test -f /opt/frigate/bin/frigate || (echo "Build failed - frigate binary not found" && exit 1) \
+    && test -f /opt/frigate/bin/frigate-cli || (echo "Build failed - frigate-cli binary not found" && exit 1) \
+    && test -d /opt/frigate/lib || (echo "Build failed - lib directory not found" && exit 1) \
+    && test -x /opt/frigate/bin/frigate || (echo "Build failed - frigate not executable" && exit 1) \
+    && test -x /opt/frigate/bin/frigate-cli || (echo "Build failed - frigate-cli not executable" && exit 1)
+
+# Switch to non-root user
 USER frigate
 WORKDIR /home/frigate
 
-# Health check
+# Expose default frigate port 57001
+EXPOSE 57001
+
+# Health check to verify frigate is responsive
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD netstat -tln | grep :57001 || exit 1
+    CMD /opt/frigate/bin/frigate-cli --help > /dev/null || exit 1
 
-# Create startup script to handle environment variables
-RUN echo '#!/bin/sh\n\
-# Build frigate command with environment variables\n\
-FRIGATE_ARGS=""\n\
-\n\
-# Add directory argument if set\n\
-if [ -n "$FRIGATE_DIR" ]; then\n\
-    FRIGATE_ARGS="$FRIGATE_ARGS -d $FRIGATE_DIR"\n\
-fi\n\
-\n\
-# Add network argument if set\n\
-if [ -n "$FRIGATE_NETWORK" ]; then\n\
-    FRIGATE_ARGS="$FRIGATE_ARGS -n $FRIGATE_NETWORK"\n\
-fi\n\
-\n\
-# Add log level argument if set\n\
-if [ -n "$FRIGATE_LOG_LEVEL" ]; then\n\
-    FRIGATE_ARGS="$FRIGATE_ARGS -l $FRIGATE_LOG_LEVEL"\n\
-fi\n\
-\n\
-# Add any additional command line arguments\n\
-FRIGATE_ARGS="$FRIGATE_ARGS $*"\n\
-\n\
-# Start frigate directly\n\
-exec /opt/frigate/bin/frigate $FRIGATE_ARGS' > /opt/frigate/bin/start.sh && \
-    chmod +x /opt/frigate/bin/start.sh
+# Set environment variables for container operation
+ENV FRIGATE_DATA_DIR=/home/frigate/.frigate
+ENV PATH="/opt/frigate/bin:$PATH"
 
-# Switch to frigate user
-USER frigate
-
-# Default command
-CMD ["/opt/frigate/bin/start.sh"]
+# Default command runs the frigate server
+CMD ["/opt/frigate/bin/frigate"]

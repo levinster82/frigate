@@ -1,32 +1,30 @@
-# Build artifacts
+# Git and build artifacts
+.git
+.gitignore
+.gitmodules
 build/
 .gradle/
-out/
 
-# IDE files
-.idea/
-*.iml
+# Documentation and logos
+README.md
+CLAUDE.md
+frigatelogo.png
+frigatelogo.svg
+LICENSE
+
+# Test scripts
+testrpc.py
+
+# IDE and editor files
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# OS generated files
+# OS specific files
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-
-# Local configuration
-*.properties
-
-# Git (we copy .git explicitly in Dockerfile for submodules)
-# Uncomment if you don't want git history in build context
-# .git
-
-# Documentation that's not needed in container
-README.md
-LICENSE
-*.png
-*.svg
-
-# Development scripts
-build-*.sh
+# GitHub workflows
+.github/

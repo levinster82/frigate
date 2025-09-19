@@ -142,6 +142,7 @@ A dictionary with the following key/value pairs:
 3. A `history` array of transactions. Confirmed transactions are listed in blockchain order. Each transaction is a dictionary with the following keys:
 - _height_: The integer height of the block the transaction was confirmed in. For mempool transactions, `0` should be used.
 - _tx_hash_: The transaction hash in hexadecimal.
+- _tweak_key_: The tweak key (`input_hash*A`) for the transaction.
 
 **Result Example**
 
@@ -155,15 +156,18 @@ A dictionary with the following key/value pairs:
   "history": [
     {
       "height": 890004,
-      "tx_hash": "acc3758bd2a26f869fcc67d48ff30b96464d476bca82c1cd6656e7d506816412"
+      "tx_hash": "acc3758bd2a26f869fcc67d48ff30b96464d476bca82c1cd6656e7d506816412",
+      "tweak_key": "0314bec14463d6c0181083d607fecfba67bb83f95915f6f247975ec566d5642ee8"
     },
     {
       "height": 905008,
-      "tx_hash": "f3e1bf48975b8d6060a9de8884296abb80be618dc00ae3cb2f6cee3085e09403"
+      "tx_hash": "f3e1bf48975b8d6060a9de8884296abb80be618dc00ae3cb2f6cee3085e09403",
+      "tweak_key": "024ac253c216532e961988e2a8ce266a447c894c781e52ef6cee902361db960004"
     },
     {
       "height": 0,
-      "tx_hash": "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16"
+      "tx_hash": "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16",
+      "tweak_key": "03aeea547819c08413974e2ab2b12212e007166bb2058f88b009e082b9b4914a58"
     }
   ]
 }
@@ -179,7 +183,8 @@ Clients should retrieve the transactions listed in the history with `blockchain.
 Electrum wallet functionality then proceeds as normal.
 In other words, the silent payments address subscription is a replacement for the monotonically increasing derivation path index in BIP32 wallets.
 The subscription seeks only to add to the client's knowledge of incoming silent payments transactions.
-The client is responsible for checking the transactions do actually send to addresses it has keys for, and using normal Electrum wallet synchronization techniques to monitor for changes to these addresses. 
+The client is responsible for checking the transactions do actually send to addresses it has keys for, and using normal Electrum wallet synchronization techniques to monitor for changes to these addresses.
+The tweak key is provided to allow the client to avoid looking up the scriptPubKeys of spent outputs.
 
 ### blockchain.silentpayments.unsubscribe
 

@@ -56,7 +56,8 @@ public class Frigate {
             bitcoindClient.initialize();
         }
 
-        electrumServer = new ElectrumServerRunnable(bitcoindClient, new IndexQuerier(blocksIndex, mempoolIndex));
+        boolean scanForChange = Config.get().getScanForChange();
+        electrumServer = new ElectrumServerRunnable(bitcoindClient, new IndexQuerier(blocksIndex, mempoolIndex, scanForChange));
         Thread electrumServerThread = new Thread(electrumServer, "Frigate Electrum Server");
         electrumServerThread.setDaemon(false);
         electrumServerThread.start();

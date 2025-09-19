@@ -1,10 +1,101 @@
 
-# (this fork)Dockerfile work in progress.
+# Fork Changes
 
+This fork adds Docker support and testing utilities:
+
+- Created Dockerfile for containerized deployment
+- Added gradlePluginPortal to settings.gradle
+- Added log [rotation](https://github.com/levinster82/frigate/commit/6a7417931a49620c85a36c0707133d402dd9c4e1)
+- Created [testrpc.py](https://github.com/levinster82/frigate/commit/38460c7dd10f5c072c2c2e455bee0e576401ddfd) to test RPC endpoint via SSL and plain TCP 
+
+### Merged with sparrowwallet/frigate through commit [cce78e0](https://github.com/sparrowwallet/frigate/commit/cce78e0c86f3b9b6bbf99ce6923d8138c186a964)
 ### Latest image available at docker.io/levinster82/frigate:latest
 
-## Only use for testing! Code heavily influenced by Claude Sonnet!
+## Only use for testing! Dockerfile and other code changes in this repo built using Claude Sonnet!
 
+### Usage
+```
+services:
+  frigate:
+    image: docker.io/levinster82/frigate:latest
+    container_name: frigate
+
+    # Optional command: to modify init defaults.
+    # command: frigate --level DEBUG --network testnet
+
+    # Optional Java environment options. This is one example, there are many.
+    # environment:
+    #   - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=80.0
+
+    ports:
+      - "57001:57001"
+    volumes:
+      # Persistent storage for Frigate configuration and database
+      - /path/to/frigate/data:/home/frigate/.frigate
+      # Mount Bitcoin Core data directory at expected location 
+      - /path/to/bitcoin/data:/home/frigate/.bitcoin:ro
+    stop_grace_period: 2m
+    restart: unless-stopped
+
+# frigate Usage
+# frigate --help
+# Usage: frigate [options]
+#   Options:
+#     --dir, -d
+#       Path to Frigate home folder
+#     --help, -h
+#       Show usage
+#     --level, -l
+#       Set log level
+#       Possible Values: [ERROR, WARN, INFO, DEBUG, TRACE]
+#     --network, -n
+#       Network to use
+#       Possible Values: [mainnet, testnet, regtest, signet, testnet4]
+#     --version, -v
+#       Show version
+
+# frigate-cli --help
+# Usage: frigate-cli [options]
+#   Options:
+#     --dir, -d
+#       Path to Frigate home folder
+#     --follow, -f
+#       Keep client open after initial scan to receive additional transaction
+#       Default: false
+#     --help
+#       Show usage
+#     --host, -h
+#       Electrum index server host
+#     --level, -l
+#       Set log level
+#       Possible Values: [ERROR, WARN, INFO, DEBUG, TRACE]
+#     --network, -n
+#       Network to use
+#       Possible Values: [mainnet, testnet, regtest, signet, testnet4]
+#     --quiet, -q
+#       Disable printing of the progress bar
+#       Default: false
+#     --scanPrivateKey, -s
+#       Scan private key
+#     --spendPublicKey, -S
+#       Spend public key
+#     --start, -b
+#       Scan start block height or timestamp
+#     --version, -v
+#       Show version
+
+# The application creates a config file at /home/frigate/.frigate/config
+# Default config example:
+# {
+#   "coreServer": "http://127.0.0.1:8332",
+#   "coreAuthType": "COOKIE",              // "COOKIE" or "USERPASS"
+#   "coreDataDir": "/home/frigate/.bitcoin",
+#   "coreAuth": "bitcoin:password",
+#   "startIndexing": true,
+#   "indexStartHeight": 709632,            // Taproot activation height (mainnet)
+#   "scriptPubKeyCacheSize": 10000000
+# }
+```
 
 ![Frigate logo](https://github.com/sparrowwallet/frigate/raw/refs/heads/master/frigatelogo.png)
 

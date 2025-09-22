@@ -8,8 +8,9 @@ This fork adds Docker support and testing utilities:
 - Added log [rotation](https://github.com/levinster82/frigate/commit/6a7417931a49620c85a36c0707133d402dd9c4e1)
 - Created [testrpc.py](https://github.com/levinster82/frigate/commit/38460c7dd10f5c072c2c2e455bee0e576401ddfd) to test RPC endpoint via SSL and plain TCP 
 
-### Merged with sparrowwallet/frigate through commit [cce78e0](https://github.com/sparrowwallet/frigate/commit/cce78e0c86f3b9b6bbf99ce6923d8138c186a964)
+### Merged with sparrowwallet/frigate through commit [485513d](https://github.com/sparrowwallet/frigate/commit/485513d24e699b48eab90cafb331dee2bbee87f5)
 ### Latest image available at docker.io/levinster82/frigate:latest
+
 
 ## Only use for testing! Dockerfile and other code changes in this repo built using Claude Sonnet!
 

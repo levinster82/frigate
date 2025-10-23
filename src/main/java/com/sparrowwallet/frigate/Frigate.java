@@ -108,12 +108,18 @@ public class Frigate {
             System.exit(0);
         }
 
+        if(args.dir != null) {
+            System.setProperty(APP_HOME_PROPERTY, args.dir);
+        }
+
+        // Setup external logback.xml configuration
+        Storage.setupLogbackConfig();
+
         if(args.level != null) {
             Drongo.setRootLogLevel(args.level);
         }
 
         if(args.dir != null) {
-            System.setProperty(APP_HOME_PROPERTY, args.dir);
             getLogger().info("Using configured Frigate home folder of " + args.dir);
         }
 

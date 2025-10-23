@@ -178,6 +178,7 @@ public class Index {
     public List<TxEntry> getHistoryAsync(SilentPaymentScanAddress scanAddress, SilentPaymentsSubscription subscription, Integer startHeight, Integer endHeight, boolean scanForChange, WeakReference<SubscriptionStatus> subscriptionStatusRef) {
         ConcurrentLinkedQueue<TxEntry> queue = new ConcurrentLinkedQueue<>();
         AtomicLong rowsProcessedStart = new AtomicLong(0L);
+        long queryStartTime = System.currentTimeMillis();
 
         try {
             dbManager.executeRead(connection -> {
@@ -191,8 +192,12 @@ public class Index {
                     sql += " AND height <= ?";
                 }
 
+                log.trace("Executing scan query for {}: {} (startHeight={}, endHeight={}, scanForChange={})",
+                    scanAddress, sql, startHeight, endHeight, scanForChange);
+
                 try(DuckDBPreparedStatement statement = connection.prepareStatement(sql).unwrap(DuckDBPreparedStatement.class)) {
                     if(isUnsubscribed(scanAddress, subscriptionStatusRef)) {
+                        log.trace("Scan cancelled before execution - address {} already unsubscribed", scanAddress);
                         return false;
                     }
 
@@ -209,6 +214,8 @@ public class Index {
                     }
                     statement.setFetchSize(1);
 
+                    log.trace("Query prepared for {}, beginning execution...", scanAddress);
+
                     try(ScheduledThreadPoolExecutor queryProgressExecutor = new ScheduledThreadPoolExecutor(1, r -> {
                         ThreadFactory namedThreadFactory = new ThreadFactoryBuilder().setNameFormat("IndexQueryProgress-%d").build();
                         Thread t = namedThreadFactory.newThread(r);
@@ -218,6 +225,8 @@ public class Index {
                         queryProgressExecutor.scheduleAtFixedRate(() -> {
                             try {
                                 if(dbManager.isShutdown() || isUnsubscribed(scanAddress, subscriptionStatusRef)) {
+                                    log.trace("Cancelling scan for {} - shutdown={}, unsubscribed={}",
+                                        scanAddress, dbManager.isShutdown(), isUnsubscribed(scanAddress, subscriptionStatusRef));
                                     statement.cancel();
                                     queryProgressExecutor.shutdownNow();
                                     return;
@@ -225,27 +234,39 @@ public class Index {
 
                                 QueryProgress queryProgress = statement.getQueryProgress();
                                 if(queryProgress.getRowsProcessed() == queryProgress.getTotalRowsToProcess()) {
+                                    log.trace("Scan for {} completed processing all {} rows",
+                                        scanAddress, queryProgress.getTotalRowsToProcess());
                                     return;
                                 }
 
                                 double progress = 0.0d;
                                 if(rowsProcessedStart.get() == 0L && queryProgress.getRowsProcessed() > 0) {
                                     rowsProcessedStart.set(queryProgress.getRowsProcessed());
+                                    log.trace("Scan for {} started processing - initial rows: {}, total rows: {}",
+                                        scanAddress, queryProgress.getRowsProcessed(), queryProgress.getTotalRowsToProcess());
                                 }
                                 if(rowsProcessedStart.get() > 0L) {
                                     progress = (queryProgress.getRowsProcessed() - rowsProcessedStart.get()) / (double)(queryProgress.getTotalRowsToProcess() - rowsProcessedStart.get());
                                 }
+
+                                log.trace("Scan progress for {}: {}/{} rows ({:.2f}%), queue size: {}",
+                                    scanAddress, queryProgress.getRowsProcessed(), queryProgress.getTotalRowsToProcess(),
+                                    progress * 100, queue.size());
 
                                 List<TxEntry> history = new ArrayList<>();
                                 TxEntry entry;
                                 while((entry = queue.poll()) != null) {
                                     history.add(entry);
                                     if(history.size() >= HISTORY_PAGE_SIZE) {
+                                        log.trace("Posting progress update for {} with {} entries (page full)", scanAddress, history.size());
                                         Frigate.getEventBus().post(new SilentPaymentsNotification(subscription, progress, new ArrayList<>(history), subscriptionStatusRef.get()));
                                         history.clear();
                                     }
                                 }
                                 if(!history.isEmpty() || queryProgressExecutor.getTaskCount() % 5 == 0) {
+                                    if(!history.isEmpty()) {
+                                        log.trace("Posting progress update for {} with {} entries", scanAddress, history.size());
+                                    }
                                     Frigate.getEventBus().post(new SilentPaymentsNotification(subscription, progress, new ArrayList<>(history), subscriptionStatusRef.get()));
                                     history.clear();
                                 }
@@ -255,12 +276,18 @@ public class Index {
                         }, 1, 1, TimeUnit.SECONDS);
 
                         ResultSet resultSet = statement.executeQuery();
+                        int matchCount = 0;
                         while(resultSet.next()) {
                             byte[] txid = resultSet.getBytes(1);
                             byte[] tweak_key = compressRawKey(resultSet.getBytes(2));
                             int height = resultSet.getInt(3);
-                            queue.offer(new TxEntry(height, 0, Utils.bytesToHex(txid), Utils.bytesToHex(tweak_key)));
+                            TxEntry txEntry = new TxEntry(height, 0, Utils.bytesToHex(txid), Utils.bytesToHex(tweak_key));
+                            queue.offer(txEntry);
+                            matchCount++;
+                            log.trace("Found match for {} at height {}: txid={}, tweak={}",
+                                scanAddress, height, Utils.bytesToHex(txid), Utils.bytesToHex(tweak_key));
                         }
+                        log.trace("Query execution completed for {}, found {} total matches", scanAddress, matchCount);
                     }
                 }
 
@@ -268,17 +295,19 @@ public class Index {
             });
         } catch(SQLTimeoutException e) {
             if(e.getMessage().startsWith("INTERRUPT Error")) {
-                log.debug("Query cancelled", e);
+                log.debug("Query cancelled for {}", scanAddress, e);
+                log.trace("Scan interrupted for {} after {}ms", scanAddress, System.currentTimeMillis() - queryStartTime);
             } else {
-                log.error("Query timeout", e);
+                log.error("Query timeout for {}", scanAddress, e);
             }
             return Collections.emptyList();
         } catch(Exception e) {
-            log.error("Error scanning index", e);
+            log.error("Error scanning index for {}", scanAddress, e);
             return Collections.emptyList();
         }
 
         if(isUnsubscribed(scanAddress, subscriptionStatusRef)) {
+            log.trace("Scan for {} unsubscribed after query completion, discarding results", scanAddress);
             return Collections.emptyList();
         }
 
@@ -287,6 +316,9 @@ public class Index {
         while((entry = queue.poll()) != null) {
             history.add(entry);
         }
+
+        long totalDuration = System.currentTimeMillis() - queryStartTime;
+        log.trace("Scan completed for {} in {}ms, returning {} results", scanAddress, totalDuration, history.size());
 
         return history;
     }

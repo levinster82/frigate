@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -22,6 +23,7 @@ public class Storage {
 
     public static final String FRIGATE_DIR = ".frigate";
     public static final String WINDOWS_FRIGATE_DIR = "Frigate";
+    public static final String LOGBACK_CONFIG_FILE = "logback.xml";
 
     public static File getSecp256k1ExtensionFile() {
         String resourcePath;
@@ -184,5 +186,70 @@ public class Storage {
 
     private static boolean isWindows() {
         return OsType.getCurrent() == OsType.WINDOWS;
+    }
+
+    public static void setupLogbackConfig() {
+        // Get the Frigate home directory
+        File frigateHome = getFrigateHome();
+        File logbackConfigFile = new File(frigateHome, LOGBACK_CONFIG_FILE);
+
+        // Set system property to tell Logback where to find the config file
+        System.setProperty("logback.configurationFile", logbackConfigFile.getAbsolutePath());
+
+        // Create default logback.xml if it doesn't exist
+        if(!logbackConfigFile.exists()) {
+            try {
+                String defaultConfig = getDefaultLogbackConfig();
+                Files.writeString(logbackConfigFile.toPath(), defaultConfig, StandardCharsets.UTF_8);
+                System.out.println("Created default logback configuration at " + logbackConfigFile.getAbsolutePath());
+            } catch(IOException e) {
+                System.err.println("Warning: Could not create logback.xml at " + logbackConfigFile.getAbsolutePath());
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private static String getDefaultLogbackConfig() {
+        return """
+                <configuration scan="true" scanPeriod="30 seconds">
+                    <statusListener class="ch.qos.logback.core.status.NopStatusListener" />
+
+                    <logger name="sun.net.www.protocol.http.HttpURLConnection" level="INFO" />
+                    <logger name="com.github.arteam.simplejsonrpc.server.JsonRpcServer" level="INFO" />
+                    <logger name="com.zaxxer.hikari.HikariDataSource" level="WARN" />
+                    <logger name="com.zaxxer.hikari.pool.PoolBase" level="ERROR" />
+                    <logger name="com.zaxxer.hikari.pool.HikariPool" level="ERROR" />
+                    <logger name="com.sparrowwallet.frigate.bitcoind.BitcoindTransport" level="INFO" />
+                    <logger name="com.sparrowwallet.frigate.index" level="TRACE" />
+
+                    <define name="appDir" class="com.sparrowwallet.drongo.PropertyDefiner">
+                        <application>frigate</application>
+                    </define>
+
+                    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+                        <file>${appDir}/frigate.log</file>
+                        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                            <fileNamePattern>${appDir}/frigate.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+                            <maxFileSize>100MB</maxFileSize>
+                            <maxHistory>30</maxHistory>
+                            <totalSizeCap>3GB</totalSizeCap>
+                        </rollingPolicy>
+                        <encoder>
+                            <pattern>%date %level [%thread] %logger{10} [%file:%line] %msg%n</pattern>
+                        </encoder>
+                    </appender>
+
+                    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+                        <encoder>
+                            <pattern>%date %level %msg%n</pattern>
+                        </encoder>
+                    </appender>
+
+                    <root level="info">
+                        <appender-ref ref="FILE" />
+                        <appender-ref ref="STDOUT" />
+                    </root>
+                </configuration>
+                """;
     }
 }

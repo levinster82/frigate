@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -196,60 +195,18 @@ public class Storage {
         // Set system property to tell Logback where to find the config file
         System.setProperty("logback.configurationFile", logbackConfigFile.getAbsolutePath());
 
-        // Create default logback.xml if it doesn't exist
+        // Create default logback.xml if it doesn't exist by copying from resources
         if(!logbackConfigFile.exists()) {
-            try {
-                String defaultConfig = getDefaultLogbackConfig();
-                Files.writeString(logbackConfigFile.toPath(), defaultConfig, StandardCharsets.UTF_8);
+            try(InputStream is = Storage.class.getResourceAsStream("/logback.xml")) {
+                if(is == null) {
+                    throw new IOException("Could not find logback.xml in resources");
+                }
+                Files.copy(is, logbackConfigFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 System.out.println("Created default logback configuration at " + logbackConfigFile.getAbsolutePath());
             } catch(IOException e) {
                 System.err.println("Warning: Could not create logback.xml at " + logbackConfigFile.getAbsolutePath());
                 e.printStackTrace();
             }
         }
-    }
-
-    private static String getDefaultLogbackConfig() {
-        return """
-                <configuration scan="true" scanPeriod="30 seconds">
-                    <statusListener class="ch.qos.logback.core.status.NopStatusListener" />
-
-                    <logger name="sun.net.www.protocol.http.HttpURLConnection" level="INFO" />
-                    <logger name="com.github.arteam.simplejsonrpc.server.JsonRpcServer" level="INFO" />
-                    <logger name="com.zaxxer.hikari.HikariDataSource" level="WARN" />
-                    <logger name="com.zaxxer.hikari.pool.PoolBase" level="ERROR" />
-                    <logger name="com.zaxxer.hikari.pool.HikariPool" level="ERROR" />
-                    <logger name="com.sparrowwallet.frigate.bitcoind.BitcoindTransport" level="INFO" />
-                    <logger name="com.sparrowwallet.frigate.index" level="TRACE" />
-
-                    <define name="appDir" class="com.sparrowwallet.drongo.PropertyDefiner">
-                        <application>frigate</application>
-                    </define>
-
-                    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-                        <file>${appDir}/frigate.log</file>
-                        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-                            <fileNamePattern>${appDir}/frigate.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-                            <maxFileSize>100MB</maxFileSize>
-                            <maxHistory>30</maxHistory>
-                            <totalSizeCap>3GB</totalSizeCap>
-                        </rollingPolicy>
-                        <encoder>
-                            <pattern>%date %level [%thread] %logger{10} [%file:%line] %msg%n</pattern>
-                        </encoder>
-                    </appender>
-
-                    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-                        <encoder>
-                            <pattern>%date %level %msg%n</pattern>
-                        </encoder>
-                    </appender>
-
-                    <root level="info">
-                        <appender-ref ref="FILE" />
-                        <appender-ref ref="STDOUT" />
-                    </root>
-                </configuration>
-                """;
     }
 }

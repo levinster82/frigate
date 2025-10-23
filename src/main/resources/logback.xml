@@ -6,6 +6,8 @@
     <logger name="com.zaxxer.hikari.HikariDataSource" level="WARN" />
     <logger name="com.zaxxer.hikari.pool.PoolBase" level="ERROR" />
     <logger name="com.zaxxer.hikari.pool.HikariPool" level="ERROR" />
+    <logger name="com.sparrowwallet.frigate.bitcoind.BitcoindTransport" level="INFO" />
+    <logger name="com.sparrowwallet.frigate.index" level="TRACE" />
 
     <define name="appDir" class="com.sparrowwallet.drongo.PropertyDefiner">
         <application>frigate</application>

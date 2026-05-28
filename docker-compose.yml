@@ -1,0 +1,107 @@
+services:
+  frigate:
+    image: docker.io/levinster82/frigate:latest
+    container_name: frigate
+
+    # Optional command: to modify init defaults.
+    # command: frigate --level DEBUG --network testnet
+
+    # Optional Java environment options.
+    # environment:
+    #   - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=80.0
+
+    ports:
+      - "50001:50001"
+      # - "50002:50002"   # uncomment if using SSL
+    volumes:
+      # Persistent storage for Frigate configuration and database
+      - /path/to/frigate/data:/home/frigate/.frigate
+      # Mount Bitcoin Core data directory at expected location
+      - /path/to/bitcoin/data:/home/frigate/.bitcoin:ro
+    stop_grace_period: 2m
+    restart: unless-stopped
+
+# frigate Usage
+# frigate --help
+# Usage: frigate [options]
+#   Options:
+#     --dir, -d
+#       Path to Frigate home folder
+#     --help, -h
+#       Show usage
+#     --level, -l
+#       Set log level
+#       Possible Values: [ERROR, WARN, INFO, DEBUG, TRACE]
+#     --network, -n
+#       Network to use
+#       Possible Values: [mainnet, testnet, regtest, signet, testnet4]
+#     --version, -v
+#       Show version
+
+# frigate-cli --help
+# Usage: frigate-cli [options]
+#   Options:
+#     --dir, -d
+#       Path to Frigate home folder
+#     --follow, -f
+#       Keep client open after initial scan to receive additional transaction
+#       Default: false
+#     --help
+#       Show usage
+#     --host, -h
+#       Electrum index server host
+#     --labels, -a
+#       List of positive integers representing labels to scan for (change is always included)
+#     --level, -l
+#       Set log level
+#       Possible Values: [ERROR, WARN, INFO, DEBUG, TRACE]
+#     --network, -n
+#       Network to use
+#       Possible Values: [mainnet, testnet, regtest, signet, testnet4]
+#     --quiet, -q
+#       Disable printing of the progress bar
+#       Default: false
+#     --scanPrivateKey, -s
+#       Scan private key
+#     --spendPublicKey, -S
+#       Spend public key
+#     --start, -b
+#       Scan start block height or timestamp
+#     --version, -v
+#       Show version
+
+# The application creates a config file at /home/frigate/.frigate/config.toml
+# Default config example:
+# [core]
+# connect = true
+# # server = "http://127.0.0.1:8332"
+# # authType = "COOKIE"            # COOKIE or USERPASS
+# # dataDir = "/home/frigate/.bitcoin"
+# # auth = "user:password"         # only needed for USERPASS
+# # zmqSequenceEndpoint = "tcp://127.0.0.1:28336"
+# # rpcRequestTimeoutSeconds = 60
+# # rpcBatchSize = 100
+#
+# [index]
+# # startHeight = 0                # default: 709632 on mainnet (Taproot activation), 0 on testnet
+# # cacheSize = "10M"              # scriptPubKey cache entries (default: 10M, ~4GB RAM)
+#
+# [scan]
+# # batchSize = 300000             # rows per GPU dispatch (reduce if scanning hangs on older GPUs)
+# # computeBackend = "AUTO"        # AUTO, GPU, or CPU
+# # dbThreads = 4                  # limit DuckDB threads (reduces CPU load when computeBackend = "CPU")
+# # memoryLimit = "8GB"            # cap DuckDB memory usage (default: 80% of system RAM)
+# # maxLabels = 10                 # maximum number of labels accepted per silent payments subscription
+# # maxSubscriptions = 100         # maximum number of silent payments subscriptions per connection
+#
+# [server]
+# # host = "ssl://xyz.com:50002"   # advertised in server.features; use array for multiple
+# # tcp = "tcp://0.0.0.0:50001"    # plaintext listener (default if neither tcp nor ssl is set)
+# # ssl = "ssl://0.0.0.0:50002"    # SSL listener; omit to disable
+# # sslCert = "cert.pem"           # PEM certificate
+# # sslKey  = "key.pem"            # PEM-encoded PKCS#8 private key
+# # backendElectrumServer = "tcp://localhost:60001"
+#
+# [database]
+# # url = "jdbc:duckdb:/custom/path/frigate.duckdb"
+# # readUrls = ["jdbc:duckdb:/replica1/frigate.duckdb"]

@@ -1,0 +1,30 @@
+# Git and build artifacts
+.git
+.gitignore
+.gitmodules
+build/
+.gradle/
+
+# Documentation and logos
+README.md
+CLAUDE.md
+frigatelogo.png
+frigatelogo.svg
+LICENSE
+
+# Test scripts
+testrpc.py
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# GitHub workflows
+.github/

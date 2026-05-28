@@ -1,3 +1,136 @@
+
+# Fork Changes
+
+This fork adds Docker support and testing utilities:
+
+- Created Dockerfile for containerized deployment
+- Added gradlePluginPortal to settings.gradle
+- Created [testrpc.py](https://github.com/levinster82/frigate/commit/38460c7dd10f5c072c2c2e455bee0e576401ddfd) to test RPC endpoint via SSL and plain TCP 
+
+### Merged with sparrowwallet/frigate through tag [v1.5.2](https://github.com/sparrowwallet/frigate/releases/tag/1.5.2)
+### Latest image available at docker.io/levinster82/frigate:latest
+
+
+## Only use for testing! Dockerfile and other code changes in this repo built using Claude Sonnet!
+
+### Usage
+```
+services:
+  frigate:
+    image: docker.io/levinster82/frigate:latest
+    container_name: frigate
+
+    # Optional command: to modify init defaults.
+    # command: frigate --level DEBUG --network testnet
+
+    # Optional Java environment options. This is one example, there are many.
+    # environment:
+    #   - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=80.0
+
+    ports:
+      - "50001:50001"
+      # - "50002:50002"   # uncomment if using SSL
+    volumes:
+      # Persistent storage for Frigate configuration and database
+      - /path/to/frigate/data:/home/frigate/.frigate
+      # Mount Bitcoin Core data directory at expected location 
+      - /path/to/bitcoin/data:/home/frigate/.bitcoin:ro
+    stop_grace_period: 2m
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# frigate Usage
+# frigate --help
+# Usage: frigate [options]
+#   Options:
+#     --dir, -d
+#       Path to Frigate home folder
+#     --help, -h
+#       Show usage
+#     --level, -l
+#       Set log level
+#       Possible Values: [ERROR, WARN, INFO, DEBUG, TRACE]
+#     --network, -n
+#       Network to use
+#       Possible Values: [mainnet, testnet, regtest, signet, testnet4]
+#     --version, -v
+#       Show version
+
+# frigate-cli --help
+# Usage: frigate-cli [options]
+#   Options:
+#     --dir, -d
+#       Path to Frigate home folder
+#     --follow, -f
+#       Keep client open after initial scan to receive additional transaction
+#       Default: false
+#     --help
+#       Show usage
+#     --host, -h
+#       Electrum index server host
+#     --labels, -a
+#       List of positive integers representing labels to scan for (change is always included)
+#     --level, -l
+#       Set log level
+#       Possible Values: [ERROR, WARN, INFO, DEBUG, TRACE]
+#     --network, -n
+#       Network to use
+#       Possible Values: [mainnet, testnet, regtest, signet, testnet4]
+#     --quiet, -q
+#       Disable printing of the progress bar
+#       Default: false
+#     --scanPrivateKey, -s
+#       Scan private key
+#     --spendPublicKey, -S
+#       Spend public key
+#     --start, -b
+#       Scan start block height or timestamp
+#     --version, -v
+#       Show version
+
+# The application creates a config file at /home/frigate/.frigate/config.toml
+# Default config example:
+# [core]
+# connect = true
+# # server = "http://127.0.0.1:8332"
+# # authType = "COOKIE"            # COOKIE or USERPASS
+# # dataDir = "/home/frigate/.bitcoin"
+# # auth = "user:password"         # only needed for USERPASS
+# # zmqSequenceEndpoint = "tcp://127.0.0.1:28336"
+# # rpcRequestTimeoutSeconds = 60
+# # rpcBatchSize = 100
+#
+# [index]
+# # startHeight = 0                # default: 709632 on mainnet (Taproot activation), 0 on testnet
+# # cacheSize = "10M"              # scriptPubKey cache entries (default: 10M, ~4GB RAM)
+#
+# [scan]
+# # batchSize = 300000             # rows per GPU dispatch (reduce if scanning hangs on older GPUs)
+# # computeBackend = "AUTO"        # AUTO, GPU, or CPU
+# # dbThreads = 4                  # limit DuckDB threads (reduces CPU load when computeBackend = "CPU")
+# # memoryLimit = "8GB"            # cap DuckDB memory usage (default: 80% of system RAM)
+# # maxLabels = 10                 # maximum number of labels accepted per silent payments subscription
+# # maxSubscriptions = 100         # maximum number of silent payments subscriptions per connection
+#
+# [server]
+# # host = "ssl://xyz.com:50002"   # advertised in server.features; use array for multiple
+# # tcp = "tcp://0.0.0.0:50001"    # plaintext listener (default if neither tcp nor ssl is set)
+# # ssl = "ssl://0.0.0.0:50002"    # SSL listener; omit to disable
+# # sslCert = "cert.pem"           # PEM certificate
+# # sslKey  = "key.pem"            # PEM-encoded PKCS#8 private key
+# # backendElectrumServer = "tcp://localhost:60001"
+#
+# [database]
+# # url = "jdbc:duckdb:/custom/path/frigate.duckdb"
+# # readUrls = ["jdbc:duckdb:/replica1/frigate.duckdb"]
+```
+
 ![Frigate logo](https://github.com/sparrowwallet/frigate/raw/refs/heads/master/frigatelogo.png)
 
 # Frigate Electrum Server
@@ -64,7 +197,7 @@ connect = true
 # maxSubscriptions = 100         # maximum number of silent payments subscriptions per connection
 
 [server]
-# host = "localhost"             # advertised in server.features (set to public hostname for public-facing deployments)
+# host = "ssl://xyz.com:50002"   # advertised in server.features; use array for multiple. Omit to advertise nothing.
 # tcp = "tcp://0.0.0.0:50001"    # plaintext listener bind URL; omit (or "") to disable. Default if neither tcp nor ssl is set.
 # ssl = "ssl://0.0.0.0:50002"    # SSL listener bind URL; omit to disable
 # sslCert = "cert.pem"           # PEM certificate (chain allowed); bare filename resolves under Frigate's home dir, or use an absolute path
@@ -553,7 +686,7 @@ blockchain.silentpayments.subscribe(scan_private_key, spend_public_key, start, l
 
 - _scan_private_key_: A 64 character string containing the hex of the scan private key.
 - _spend_public_key_: A 66 character string containing the hex of the spend public key.
-- _start_: (Optional) An integer block height to start scanning from, or a string of the form `"FROM-TO"` to specify a closed range of heights. Integer values above 500,000,000 are treated as seconds from the start of the epoch.
+- _start_: (Optional) An integer block height to start scanning from, or a string of the form `"FROM-TO"` to specify a closed range of heights. Integer values above 500,000,000 are treated as seconds from the start of the epoch, matching `nLockTime` convention.
 - _labels_: (Optional) An array of positive integers specifying additional silent payment labels to scan for. Change (`m = 0`) is always included regardless. To aid in wallet recovery, this parameter should only be used for specialized applications.
 
 **Result**
@@ -585,16 +718,15 @@ Servers **must** send the response to `blockchain.silentpayments.subscribe` befo
 The `subscription` object in every notification **must** be byte-identical to the one returned in the original `blockchain.silentpayments.subscribe` response with the same `address`, `labels` and `start_height`.
 It identifies which subscription the notification belongs to, not the range that the server happened to scan to produce it.
 All historical (`progress` < `1.0`) results **must** be sent before current (up to date) results.
-Servers **must** also deliver silent payments notifications before any scripthash notification arising from the same block or mempool event, since the silent payments subscription is the discovery channel through which clients learn which scripthashes to subscribe to.
 A `progress` of `1.0` indicates the scan is up to date as of this notification.
 The first such notification marks the end of the historical scan; subsequent `1.0` notifications represent live updates as new blocks and mempool transactions are scanned.
-Clients should flush any buffered history on every `1.0` notification.
+Clients should flush any buffered history to local state on every `1.0` notification.
 
 ```
 blockchain.silentpayments.subscribe(subscription, progress, history)
 ```
 
-**Result**
+**Body**
 
 A dictionary with the following key/value pairs:
 
@@ -606,7 +738,7 @@ A dictionary with the following key/value pairs:
 2. A `progress` key/value pair indicating the progress of a historical scan:
 - _progress_: A floating point value between `0.0` and `1.0`. Will be `1.0` for all current (up to date) results.
 
-3. A `history` array of transactions. Confirmed transactions are listed in order by height. Each transaction is a dictionary with the following keys:
+3. A `history` array of transactions. Confirmed transactions are listed in order by height, followed by mempool transactions in arbitary order. Each transaction is a dictionary with the following keys:
 - _height_: The integer height of the block the transaction was confirmed in. For mempool transactions, `0` should be used.
 - _tx_hash_: The transaction hash in hexadecimal.
 - _tweak_key_: The tweak key (`input_hash*A`) for the transaction in compressed format.
@@ -642,13 +774,14 @@ A dictionary with the following key/value pairs:
 ```
 
 It is recommended that servers implementing this protocol send history results incrementally as the historical scan progresses.
-In addition, a maximum page size of 100 is suggested when sending historical transactions.
+In addition, a maximum page size of 1000 is suggested when sending historical transactions.
 This will avoid transmission issues with large wallets that have many transactions, while providing the client with regular progress updates.
 Servers should also emit a notification with empty `history` at regular intervals (e.g. every 5 seconds) during a historical scan, to keep the client updated on scanning progress.
 In the case of block reorgs, the server should rescan all existing subscriptions from the reorg-ed block height and send any history (if found) to the client.
 All found mempool transactions should be sent on the initial subscription, but thereafter previously sent mempool transactions should not be resent.
-The server **must not** re-notify a previously sent mempool transaction once it confirms as clients track confirmation state via `blockchain.scripthash.subscribe`.
+The server **must not** re-notify a previously sent mempool transaction once it confirms in a block - clients track confirmation state via `blockchain.scripthash.subscribe`.
 The silent payments subscription is purely a discovery channel.
+Once a silent payments subscription has reached `progress = 1.0`, servers **must** deliver silent payments notifications before any scripthash notification arising from the same block or mempool event, since the silent payments subscription is how clients learn which scripthashes to subscribe to.
 
 Clients reconnecting with prior history should pass `start = lastSeenHeight - reorgLimit` to limit the rescan to a recent window.
 A reorg limit of 100 blocks is sufficient.

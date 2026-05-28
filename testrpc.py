@@ -6,19 +6,19 @@ SPEND_PUBLIC_KEY = "025cc9856d6f8375350e123978daac200c260cb5b5ae83106cab90484dcd
 START_HEIGHT = 709632
 EXPECTED_ADDRESS = "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv"
 SOURCE_URL = "https://github.com/bitcoin/bips/blob/master/bip-0352/send_and_receive_test_vectors.json"
-SSL_PORT, TCP_PORT = 57002, 57001
+TCP_PORT, SSL_PORT = 50001, 50002
 
 parser = argparse.ArgumentParser(description='Test Frigate Silent Payments RPC with SSL/TCP')
 parser.add_argument('--host', default='127.0.0.1', help='Frigate server host (default: 127.0.0.1)')
-parser.add_argument('--port', type=int, default=SSL_PORT, help=f'Frigate server port (default: {SSL_PORT} for SSL, {TCP_PORT} for plain TCP)')
-parser.add_argument('--plain-tcp', action='store_true', help='Use plain TCP instead of SSL (default: SSL)')
+parser.add_argument('--port', type=int, default=TCP_PORT, help=f'Frigate server port (default: {TCP_PORT} for plain TCP, {SSL_PORT} for SSL)')
+parser.add_argument('--ssl', action='store_true', help='Use SSL instead of plain TCP (default: plain TCP)')
 parser.add_argument('--verify-cert', action='store_true', help='Verify SSL certificate when using SSL (default: disabled for testing)')
 args = parser.parse_args()
 
 # Connection setup
-is_tcp = args.plain_tcp
+is_tcp = not args.ssl
 conn_type = "TCP" if is_tcp else "SSL"
-port = TCP_PORT if (args.port == SSL_PORT and is_tcp) else args.port
+port = SSL_PORT if (args.port == TCP_PORT and not is_tcp) else args.port
 
 def create_connection():
     """Create SSL or TCP connection based on args"""
@@ -53,7 +53,7 @@ req = {
 def print_test_info():
     """Print test information header"""
     print(f"=== BIP 352 Silent Payments {conn_type} Test ===")
-    print(f"Testing: blockchain.silentpayments.subscribe RPC method over {'plain TCP' if is_tcp else 'SSL'}")
+    print(f"Testing: blockchain.silentpayments.subscribe RPC method over {'plain TCP' if is_tcp else 'SSL (--ssl)'}")
     print("Validates: Silent Payments address generation from scan+spend keys")
     print(f"Test Vector Source: {SOURCE_URL}")
     print(f"Connecting to: {args.host}:{port} ({conn_type})")

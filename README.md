@@ -7,7 +7,7 @@ This fork adds Docker support and testing utilities:
 - Added gradlePluginPortal to settings.gradle
 - Created [testrpc.py](https://github.com/levinster82/frigate/commit/38460c7dd10f5c072c2c2e455bee0e576401ddfd) to test RPC endpoint via SSL and plain TCP 
 
-### Merged with sparrowwallet/frigate through tag [v1.5.2](https://github.com/sparrowwallet/frigate/releases/tag/1.5.2)
+### Merged with sparrowwallet/frigate through tag [v1.5.3](https://github.com/sparrowwallet/frigate/releases/tag/1.5.3)
 ### Latest image available at docker.io/levinster82/frigate:latest
 
 
@@ -117,6 +117,7 @@ services:
 # # memoryLimit = "8GB"            # cap DuckDB memory usage (default: 80% of system RAM)
 # # maxLabels = 10                 # maximum number of labels accepted per silent payments subscription
 # # maxSubscriptions = 100         # maximum number of silent payments subscriptions per connection
+# # metricsEnabled = true          # hourly aggregate scan stats log line (default: true)
 #
 # [server]
 # # host = "ssl://xyz.com:50002"   # advertised in server.features; use array for multiple

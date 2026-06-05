@@ -15,6 +15,7 @@ import com.sparrowwallet.frigate.Frigate;
 import com.sparrowwallet.frigate.bitcoind.*;
 import com.sparrowwallet.frigate.index.IndexQuerier;
 import com.sparrowwallet.frigate.io.Config;
+import com.sparrowwallet.frigate.io.Protocol;
 import com.sparrowwallet.frigate.io.Server;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,12 +30,14 @@ public class ElectrumServerService {
     public static final Version MAX_DEFAULT_VERSION = new Version("1.4.2");
     public static final Version MAX_SUBMIT_PACKAGE_VERSION = new Version("1.6");
     public static final List<Integer> SILENT_PAYMENTS_SUPPORTED_VERSIONS = List.of(0);
+    private static final int METHOD_NOT_FOUND = -32601;
 
     private final BitcoindClient bitcoindClient;
     private final RequestHandler requestHandler;
     private final IndexQuerier indexQuerier;
     private final ElectrumBackendService electrumBackendService;
     private Version protocolVersion;
+    private String genesisHash;
 
     public ElectrumServerService(BitcoindClient bitcoindClient, RequestHandler requestHandler, IndexQuerier indexQuerier, ElectrumTransport backendTransport) {
         this.bitcoindClient = bitcoindClient;
@@ -104,17 +107,50 @@ public class ElectrumServerService {
     @JsonRpcMethod("server.features")
     public ServerFeatures getServerFeatures() {
         checkVersionNegotiated();
+        Map<String, ServerFeatures.HostInfo> ourHosts = buildAdvertisedHosts(Config.get().getServer().getAdvertisedHosts());
+
         if(electrumBackendService != null) {
-            Config.ServerConfig serverConfig = Config.get().getServer();
-            Server tcpServer = serverConfig.getTcpServer();
-            Server sslServer = serverConfig.getSslServer();
-            Integer tcp = tcpServer != null ? tcpServer.getHostAndPort().getPort() : null;
-            Integer ssl = sslServer != null ? sslServer.getHostAndPort().getPort() : null;
-            Map<String, ServerFeatures.HostInfo> ourHosts = Map.of(serverConfig.getHost(), new ServerFeatures.HostInfo(tcp, ssl));
-            return electrumBackendService.getServerFeatures().withHosts(ourHosts).withSilentPayments(SILENT_PAYMENTS_SUPPORTED_VERSIONS);
+            try {
+                return electrumBackendService.getServerFeatures().withHosts(ourHosts).withSilentPayments(SILENT_PAYMENTS_SUPPORTED_VERSIONS);
+            } catch(JsonRpcException e) {
+                if(e.getErrorMessage() == null || e.getErrorMessage().getCode() != METHOD_NOT_FOUND) {
+                    throw e;
+                }
+                log.debug("Backend does not support server.features, returning local response");
+            }
         }
 
-        throw new UnsupportedOperationException("Configure backendElectrumServer to use server.features");
+        return new ServerFeatures(ourHosts, getGenesisHash(), "sha256", Frigate.SERVER_NAME + " " + Frigate.SERVER_VERSION,
+                protocolVersion.get(), MIN_VERSION.get(), null, SILENT_PAYMENTS_SUPPORTED_VERSIONS);
+    }
+
+    static Map<String, ServerFeatures.HostInfo> buildAdvertisedHosts(List<Server> servers) {
+        Map<String, ServerFeatures.HostInfo> result = new LinkedHashMap<>();
+        for(Server server : servers) {
+            int port = server.getHostAndPort().getPort();
+            ServerFeatures.HostInfo current = result.get(server.getHost());
+            Integer tcp = current == null ? null : current.tcp_port();
+            Integer ssl = current == null ? null : current.ssl_port();
+            if(server.getProtocol() == Protocol.TCP) {
+                tcp = port;
+            } else if(server.getProtocol() == Protocol.SSL) {
+                ssl = port;
+            }
+            result.put(server.getHost(), new ServerFeatures.HostInfo(tcp, ssl));
+        }
+        return result;
+    }
+
+    private String getGenesisHash() {
+        if(genesisHash == null && bitcoindClient != null) {
+            try {
+                genesisHash = bitcoindClient.getBitcoindService().getBlockHash(0);
+            } catch(Exception e) {
+                log.debug("Could not fetch genesis hash from bitcoind", e);
+            }
+        }
+
+        return genesisHash;
     }
 
     @JsonRpcMethod("server.add_peer")

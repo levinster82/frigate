@@ -29,7 +29,7 @@ import java.util.Locale;
 
 public class Frigate {
     public static final String SERVER_NAME = "Frigate";
-    public static final String SERVER_VERSION = "1.5.2";
+    public static final String SERVER_VERSION = "1.5.3";
     public static final String APP_HOME_PROPERTY = "frigate.home";
     public static final String NETWORK_ENV_PROPERTY = "FRIGATE_NETWORK";
     private static final int MAINNET_TAPROOT_ACTIVATION_HEIGHT = 709632;
@@ -39,6 +39,7 @@ public class Frigate {
 
     private Index blocksIndex;
     private Index mempoolIndex;
+    private IndexQuerier indexQuerier;
     private BitcoindClient bitcoindClient;
     private ElectrumServerRunnable electrumServer;
 
@@ -73,7 +74,8 @@ public class Frigate {
         SSLContext sslContext = serverConfig.isSslEnabled() ? SslUtil.getServerSSLContext(serverConfig.getSslCertFile(), serverConfig.getSslKeyFile()) : null;
         InetSocketAddress tcpBind = toBindAddress(serverConfig.getTcpServer());
         InetSocketAddress sslBind = toBindAddress(serverConfig.getSslServer());
-        electrumServer = new ElectrumServerRunnable(bitcoindClient, new IndexQuerier(blocksIndex, mempoolIndex), tcpBind, sslBind, sslContext);
+        indexQuerier = new IndexQuerier(blocksIndex, mempoolIndex);
+        electrumServer = new ElectrumServerRunnable(bitcoindClient, indexQuerier, tcpBind, sslBind, sslContext);
         Thread electrumServerThread = new Thread(electrumServer, "Frigate Electrum Server");
         electrumServerThread.setDaemon(false);
         electrumServerThread.start();
@@ -99,6 +101,9 @@ public class Frigate {
         }
         if(electrumServer != null) {
             electrumServer.stop();
+        }
+        if(indexQuerier != null) {
+            indexQuerier.close();
         }
 
         running = false;

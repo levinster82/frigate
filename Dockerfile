@@ -1,89 +1,97 @@
-# Multi-stage build for Frigate - Ubuntu-based amd64 image
-FROM eclipse-temurin:25-jdk AS builder
+# Frigate Docker image built from the official upstream release.
+#
+# Downloads the signed release tarball from github.com/sparrowwallet/frigate,
+# verifies Craig Raw's PGP signature on the release manifest and the tarball's
+# sha256, then copies it into a slim runtime image. The release bundles its own
+# jlink Java runtime and both launchers (frigate, frigate-cli).
+#
+# GPU: NVIDIA via CUDA only. Frigate bundles its CUDA extension and the NVIDIA
+# container runtime injects the driver (see the deploy: block in
+# docker-compose.yml). No OpenCL loader or Intel/AMD runtimes are included, so
+# on those GPUs computeBackend = "AUTO" falls back to CPU.
+#
+# Build:            docker build -t frigate .
+# Other version:    docker build --build-arg FRIGATE_VERSION=x.y.z -t frigate .
+# Multi-arch:       docker buildx build --platform linux/amd64,linux/arm64 -t frigate .
 
-# Install required build dependencies (only git needed for installDist)
-RUN apt-get update && apt-get install -y \
-    git \
+FROM debian:trixie-slim AS downloader
+
+ARG TARGETARCH
+ARG FRIGATE_VERSION=1.6.1
+# Craig Raw <craig@sparrowwallet.com> - full fingerprint, pinned
+ARG FRIGATE_PGP_FINGERPRINT=D4D0D3202FC06849A257B38DE94618334C674B40
+ARG FRIGATE_PGP_KEY_URL=https://keybase.io/craigraw/pgp_keys.asc
+
+# Each RUN below starts with `set -eu` so a failed check always aborts the
+# build, even under Podman/Buildah where SHELL is ignored for OCI images.
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
+WORKDIR /tmp/frigate
 
-# Copy gradle files first for better layer caching
-COPY build.gradle settings.gradle gradlew ./
-COPY gradle/ ./gradle/
+# Download release tarball, signed manifest and signing key
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) ARCH=x86_64 ;; \
+        arm64) ARCH=aarch64 ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    BASE="https://github.com/sparrowwallet/frigate/releases/download/${FRIGATE_VERSION}"; \
+    curl -fsSL "${BASE}/frigate-${FRIGATE_VERSION}-${ARCH}.tar.gz" -o frigate.tar.gz; \
+    curl -fsSL "${BASE}/frigate-${FRIGATE_VERSION}-manifest.txt" -o manifest.txt; \
+    curl -fsSL "${BASE}/frigate-${FRIGATE_VERSION}-manifest.txt.asc" -o manifest.txt.asc; \
+    curl -fsSL "${FRIGATE_PGP_KEY_URL}" -o signing-key.asc; \
+    echo "frigate-${FRIGATE_VERSION}-${ARCH}.tar.gz" > tarball-name
 
-# Copy source code
-COPY src/ ./src/
+# Verify the manifest is signed by the pinned key fingerprint
+RUN set -eu; \
+    export GNUPGHOME="$(mktemp -d)"; \
+    gpg --batch --quiet --import signing-key.asc; \
+    if ! gpg --batch --status-fd 1 --verify manifest.txt.asc manifest.txt > gpg-status \
+       || ! grep -Eq "^\[GNUPG:\] VALIDSIG .* ${FRIGATE_PGP_FINGERPRINT}\$" gpg-status; then \
+        echo "PGP verification of release manifest failed" >&2; cat gpg-status >&2; exit 1; \
+    fi
 
-# Clone drongo dependency directly since git submodules won't work without .git
-RUN rm -rf drongo \
-    && git clone https://github.com/sparrowwallet/drongo.git drongo
+# Verify the tarball sha256 against the signed manifest, then extract
+RUN set -eu; \
+    TARBALL="$(cat tarball-name)"; \
+    EXPECTED="$(grep -F "*${TARBALL}" manifest.txt | cut -d' ' -f1)"; \
+    test -n "${EXPECTED}" || { echo "${TARBALL} not listed in manifest" >&2; exit 1; }; \
+    echo "${EXPECTED}  frigate.tar.gz" | sha256sum --check --strict -; \
+    tar -xzf frigate.tar.gz -C /opt; \
+    test -x /opt/frigate/bin/frigate; \
+    test -x /opt/frigate/bin/frigate-cli
 
-# Remove Mac/Windows specific deployment resources to reduce image size
-RUN rm -rf src/main/deploy/package/macos/ \
-    src/main/deploy/package/windows/ \
-    src/main/resources/native/macos/ \
-    src/main/resources/native/windows/ \
-    && find drongo/src/main/resources/native -type d -name "osx" -exec rm -rf {} + \
-    && find drongo/src/main/resources/native -type d -name "windows" -exec rm -rf {} + \
-    || true
 
-# Configure Java preview features and remove Windows scripts
-RUN printf '\n// Docker build configuration\nallprojects {\n    compileJava {\n        options.compilerArgs += ["--enable-preview"]\n        options.release = 25\n    }\n}\nstartScripts {\n    doLast {\n        delete windowsScript\n    }\n}\n' >> build.gradle
+FROM debian:trixie-slim
 
-# Build the application - use installDist instead of jlink to avoid java executable issues
-RUN ./gradlew clean installDist --no-daemon
-
-# Production stage - use Eclipse Temurin JRE which has Java 25 support
-FROM eclipse-temurin:25-jre
-
-# Install minimal runtime dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    bash \
+# ca-certificates: for SSL connections to a backendElectrumServer or remote RPC
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && (getent passwd ubuntu && userdel ubuntu || true) \
-    && (getent group 1000 && groupdel $(getent group 1000 | cut -d: -f1) || true) \
-    && groupadd -r -g 1000 frigate \
-    && useradd -r -u 1000 -g frigate -s /bin/false frigate
-
-# Copy the Gradle-generated distribution
-COPY --from=builder /app/build/install/frigate /opt/frigate
-
-# Create frigate-cli executable since installDist only creates the main app
-RUN echo '#!/bin/bash' > /opt/frigate/bin/frigate-cli \
-    && echo 'exec java -cp "/opt/frigate/lib/*" com.sparrowwallet.frigate.cli.FrigateCli "$@"' >> /opt/frigate/bin/frigate-cli
-
-# Create data directory for frigate configuration
-RUN mkdir -p /home/frigate/.frigate \
+    && groupadd -g 1000 frigate \
+    && useradd -u 1000 -g frigate -m -d /home/frigate -s /usr/sbin/nologin frigate \
+    && mkdir -p /home/frigate/.frigate \
     && chown -R frigate:frigate /home/frigate
 
-# Set executable permissions for both binaries
-RUN chmod +x /opt/frigate/bin/frigate /opt/frigate/bin/frigate-cli
+COPY --from=downloader /opt/frigate /opt/frigate
 
-# Verify build succeeded and all required files exist
-RUN test -f /opt/frigate/bin/frigate || (echo "Build failed - frigate binary not found" && exit 1) \
-    && test -f /opt/frigate/bin/frigate-cli || (echo "Build failed - frigate-cli binary not found" && exit 1) \
-    && test -d /opt/frigate/lib || (echo "Build failed - lib directory not found" && exit 1) \
-    && test -x /opt/frigate/bin/frigate || (echo "Build failed - frigate not executable" && exit 1) \
-    && test -x /opt/frigate/bin/frigate-cli || (echo "Build failed - frigate-cli not executable" && exit 1)
+ENV PATH="/opt/frigate/bin:${PATH}"
 
-# Switch to non-root user
 USER frigate
 WORKDIR /home/frigate
 
-# Expose default frigate ports (TCP 50001, SSL 50002)
-EXPOSE 50001
-EXPOSE 50002
+# Electrum TCP (default) and SSL (if enabled in config.toml)
+EXPOSE 50001 50002
 
-# Health check to verify frigate is responsive
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD /opt/frigate/bin/frigate-cli --help > /dev/null || exit 1
+# Checks the Electrum TCP listener accepts connections. Adjust or disable if
+# you run SSL only or bind a different port. start-period allows for startup.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=2m --retries=3 \
+    CMD bash -c '</dev/tcp/127.0.0.1/50001' || exit 1
 
-# Set environment variables for container operation
-ENV FRIGATE_DATA_DIR=/home/frigate/.frigate
-ENV PATH="/opt/frigate/bin:$PATH"
-
-# Default command runs the frigate server
-CMD ["/opt/frigate/bin/frigate"]
+# CMD (not ENTRYPOINT) so compose `command: frigate --level DEBUG` and
+# `docker run <image> frigate-cli ...` both work.
+CMD ["frigate"]

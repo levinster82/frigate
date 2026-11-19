@@ -1,20 +1,58 @@
 
 # Fork Changes
 
-This fork adds Docker support and testing utilities:
+This fork adds a Docker image and testing utilities on top of [sparrowwallet/frigate](https://github.com/sparrowwallet/frigate).
 
-- Created Dockerfile for containerized deployment
-- Added gradlePluginPortal to settings.gradle
-- Created [testrpc.py](https://github.com/levinster82/frigate/commit/38460c7dd10f5c072c2c2e455bee0e576401ddfd) to test RPC endpoint via SSL and plain TCP 
+> **Only use for testing!** The Docker files and other changes in this repo were written with the help of Claude.
 
-### Merged with sparrowwallet/frigate through tag [v1.5.3](https://github.com/sparrowwallet/frigate/releases/tag/1.5.3)
-### Latest image available at docker.io/levinster82/frigate:latest
+- **[Dockerfile](Dockerfile)**: installs the **official upstream release** instead of building from source.
+  The build downloads the release tarball, checks Craig Raw's PGP signature on the release manifest
+  (pinned fingerprint `D4D0 D320 2FC0 6849 A257  B38D E946 1833 4C67 4B40`) and checks the tarball's
+  sha256 against that manifest. If either check fails, the build fails.
+- **[docker-compose.yml](docker-compose.yml)**: example service with the full `config.toml` reference for Frigate 1.6.1.
+- **[testrpc.py](testrpc.py)**: tests the Electrum RPC endpoint over plain TCP and SSL.
+- `settings.gradle`: adds `gradlePluginPortal` (only relevant when building from source).
 
+The upstream documentation further down this page is copied from the
+[1.6.1](https://github.com/sparrowwallet/frigate/releases/tag/1.6.1) release, matching the version the Docker
+image installs. See the [upstream README](https://github.com/sparrowwallet/frigate#readme) for unreleased changes.
 
-## Only use for testing! Dockerfile and other code changes in this repo built using Claude Sonnet!
+## Docker image
 
-### Usage
+Latest image: `docker.io/levinster82/frigate:latest`
+
+| | |
+|---|---|
+| Frigate version | 1.6.1 (override with `--build-arg FRIGATE_VERSION=x.y.z`) |
+| Base image | `debian:trixie-slim` (Frigate's release bundles its own Java runtime) |
+| Architectures | amd64, arm64 |
+| User | `frigate`, UID/GID 1000 (non-root) |
+| Data directory | `/home/frigate/.frigate` (config, database, logs) |
+| Ports | 50001 (TCP), 50002 (SSL, if enabled in config) |
+| Included tools | `frigate`, `frigate-cli` |
+| GPU | NVIDIA via CUDA only. Intel/AMD (OpenCL) are not included; `computeBackend = "AUTO"` falls back to CPU |
+| Healthcheck | TCP connect to port 50001 |
+
+### Build
+
+```bash
+docker build -t frigate .
+docker build --build-arg FRIGATE_VERSION=1.6.1 -t frigate:1.6.1 .
+docker buildx build --platform linux/amd64,linux/arm64 -t frigate .   # multi-arch
 ```
+
+With Podman, add `--format docker` or the healthcheck is dropped:
+
+```bash
+podman build --format docker -t frigate .
+```
+
+### Run
+
+Example compose file (the same as [docker-compose.yml](docker-compose.yml), including the `frigate` and `frigate-cli`
+help output and the full 1.6.1 `config.toml` reference):
+
+```yaml
 services:
   frigate:
     image: docker.io/levinster82/frigate:latest
@@ -23,7 +61,7 @@ services:
     # Optional command: to modify init defaults.
     # command: frigate --level DEBUG --network testnet
 
-    # Optional Java environment options. This is one example, there are many.
+    # Optional Java environment options.
     # environment:
     #   - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=80.0
 
@@ -33,17 +71,23 @@ services:
     volumes:
       # Persistent storage for Frigate configuration and database
       - /path/to/frigate/data:/home/frigate/.frigate
-      # Mount Bitcoin Core data directory at expected location 
+      # Mount Bitcoin Core data directory at expected location
       - /path/to/bitcoin/data:/home/frigate/.bitcoin:ro
     stop_grace_period: 2m
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     restart: unless-stopped
+
+    # Optional NVIDIA GPU acceleration (CUDA).
+    # Requires the NVIDIA driver and nvidia-container-toolkit on the host.
+    # No extra packages are needed in the image: Frigate bundles its CUDA
+    # extension and the NVIDIA runtime injects the driver libraries.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities:
+    #             - gpu
 
 # frigate Usage
 # frigate --help
@@ -95,16 +139,16 @@ services:
 #       Show version
 
 # The application creates a config file at /home/frigate/.frigate/config.toml
-# Default config example:
+# Default config example (matches upstream Frigate 1.6.1):
 # [core]
 # connect = true
 # # server = "http://127.0.0.1:8332"
 # # authType = "COOKIE"            # COOKIE or USERPASS
 # # dataDir = "/home/frigate/.bitcoin"
 # # auth = "user:password"         # only needed for USERPASS
-# # zmqSequenceEndpoint = "tcp://127.0.0.1:28336"
-# # rpcRequestTimeoutSeconds = 60
-# # rpcBatchSize = 100
+# # zmqSequenceEndpoint = "tcp://127.0.0.1:28336"   # bitcoind -zmqpubsequence endpoint for low-latency mempool ingestion
+# # rpcRequestTimeoutSeconds = 60                   # per-RPC read timeout (raise on slow/remote bitcoind, lower on fast LAN)
+# # rpcBatchSize = 100                              # max sub-requests per JSON-RPC array batch (mempool fill)
 #
 # [index]
 # # startHeight = 0                # default: 709632 on mainnet (Taproot activation), 0 on testnet
@@ -117,20 +161,109 @@ services:
 # # memoryLimit = "8GB"            # cap DuckDB memory usage (default: 80% of system RAM)
 # # maxLabels = 10                 # maximum number of labels accepted per silent payments subscription
 # # maxSubscriptions = 100         # maximum number of silent payments subscriptions per connection
-# # metricsEnabled = true          # hourly aggregate scan stats log line (default: true)
+# # metricsEnabled = true          # hourly privacy-preserving aggregate log lines of scan stats and server usage
 #
 # [server]
-# # host = "ssl://xyz.com:50002"   # advertised in server.features; use array for multiple
-# # tcp = "tcp://0.0.0.0:50001"    # plaintext listener (default if neither tcp nor ssl is set)
+# # host = "ssl://xyz.com:50002"   # advertised in server.features; use array for multiple. Omit to advertise nothing.
+# # tcp = "tcp://0.0.0.0:50001"    # plaintext listener (default if neither tcp nor ssl is set); omit or "" to disable
 # # ssl = "ssl://0.0.0.0:50002"    # SSL listener; omit to disable
-# # sslCert = "cert.pem"           # PEM certificate
-# # sslKey  = "key.pem"            # PEM-encoded PKCS#8 private key
-# # backendElectrumServer = "tcp://localhost:60001"
+# # sslCert = "cert.pem"           # PEM certificate (chain allowed); bare filename resolves under /home/frigate/.frigate
+# # sslKey  = "key.pem"            # PEM-encoded PKCS#8 private key; bare filename resolves under /home/frigate/.frigate
+# # sslReloadSeconds = 300         # how often to check cert/key files and reload them without a restart when renewed
+# # donationAddress = ""           # address served for server.donation_address
+# # bannerFile = "banner.txt"      # text served for server.banner (re-read when changed)
+# # adminPort = 50003              # loopback-only admin JSON-RPC port offering getinfo, for health checks; 0 or absent disables
+# # shutdownDrainSeconds = 10      # on shutdown, how long sessions may take to finish in-flight requests
+# # healthStatsEnabled = true      # log backend and index health every 5 minutes, without counts
+# # backendElectrumServer = "tcp://localhost:60001"   # must listen on a port distinct from Frigate's tcp/ssl listeners
+# # backendRequestTimeoutSeconds = 120                # per-request timeout on each session's backend connection
+# # backendReconnectMaxBackoffSeconds = 60            # max delay between attempts to reconnect a lost backend connection
+# # backendPingIntervalSeconds = 60                   # keepalive ping on an idle backend connection
+# # backendSslCertFile = "backend.pem"                # pin an ssl:// backend to exactly this certificate (overrides backendSslVerify)
+# # backendSslVerify = false                          # verify an ssl:// backend's certificate against trusted CAs and hostname
+#
+# [limits]
+# # Defaults suit a public server. DOCKER NOTE: LAN/internet clients keep their real IP, but
+# # clients on the Docker host itself (localhost:50001) arrive from the bridge gateway
+# # (e.g. 172.17.0.1 or your compose network's .1), not 127.0.0.1, so the loopback exemption
+# # doesn't cover them. For a home server add your LAN and Docker subnets to excludedSubnets.
+# # frigate-cli run via `docker exec` arrives from 127.0.0.1 and is already exempt.
+# # maxConnections = 1000                # global concurrent session cap
+# # maxConnectionsPerIp = 12             # per client IP (IPv6: per /64)
+# # maxRequestBytes = 1000000            # max JSON-RPC line length; oversized requests disconnect
+# # maxBatchSize = 345                   # max requests per JSON-RPC batch array
+# # sessionTimeoutSeconds = 600          # idle disconnect; Electrum clients ping every ~60s
+# # maxSubscriptionsPerIp = 75000        # scripthash subscriptions per client IP
+# # maxSubscriptions = 10000000          # global scripthash subscription cap
+# # notificationQueueSize = 1000         # notifications a client may fall behind before it is disconnected
+# # silentPaymentsSubscribeBurst = 10              # silent payments subscribes a session may make at once
+# # silentPaymentsSubscribeIntervalSeconds = 10    # then one per interval; extra subscribes are delayed, never rejected
+# # excludedSubnets = ["127.0.0.1/32", "::1/128"]   # e.g. add "172.16.0.0/12", "192.168.0.0/16"
 #
 # [database]
+# # Still supported in 1.6.1 but no longer in the upstream README example.
 # # url = "jdbc:duckdb:/custom/path/frigate.duckdb"
 # # readUrls = ["jdbc:duckdb:/replica1/frigate.duckdb"]
 ```
+
+Set the two volume paths, then:
+
+```bash
+docker compose up -d
+docker compose logs -f frigate
+```
+
+The data directory must be writable by UID 1000. Bitcoin Core needs `txindex=1`. The Bitcoin data directory
+is mounted read-only at `/home/frigate/.bitcoin` so Frigate can read the RPC cookie. Set
+`dataDir = "/home/frigate/.bitcoin"` under `[core]` in `config.toml`, and point `server` at an address of
+bitcoind that the container can reach.
+
+Pass options to Frigate through `command:` in the compose file, for example:
+
+```yaml
+    command: frigate --level DEBUG --network testnet4
+```
+
+Run the CLI inside the container:
+
+```bash
+docker exec -it frigate frigate-cli -s SCAN_PRIVATE_KEY -S SPEND_PUBLIC_KEY -b 890000
+```
+
+### NVIDIA GPU
+
+You need the NVIDIA driver and [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+on the host. Nothing else needs to be in the image, because Frigate bundles its CUDA extension.
+Uncomment this block in `docker-compose.yml`:
+
+```yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
+```
+
+On startup the log should show `Using cuda... backend for scanning`.
+
+### Configuration
+
+Frigate creates `/home/frigate/.frigate/config.toml` on first start. The comment block at the bottom of
+[docker-compose.yml](docker-compose.yml) lists every option for 1.6.1, including the `[limits]` section.
+
+**Docker note on `[limits]`:** the per-IP limits default to values for a public server, and only loopback
+is exempt. Clients on the Docker host itself that connect to `localhost:50001` arrive from the Docker bridge
+gateway (e.g. `172.17.0.1`), not from `127.0.0.1`. For a home server, add your LAN and Docker subnets:
+
+```toml
+[limits]
+excludedSubnets = ["127.0.0.1/32", "::1/128", "172.16.0.0/12", "192.168.0.0/16"]
+```
+
+`frigate-cli` run via `docker exec` already counts as loopback.
 
 ![Frigate logo](https://github.com/sparrowwallet/frigate/raw/refs/heads/master/frigatelogo.png)
 
@@ -196,7 +329,7 @@ connect = true
 # memoryLimit = "8GB"            # cap DuckDB memory usage (default: 80% of system RAM)
 # maxLabels = 10                 # maximum number of labels accepted per silent payments subscription
 # maxSubscriptions = 100         # maximum number of silent payments subscriptions per connection
-# metricsEnabled = true          # hourly aggregate scan stats log line (default: true)
+# metricsEnabled = true          # hourly privacy-preserving aggregate log lines of scan stats and server usage (default: true)
 
 [server]
 # host = "ssl://xyz.com:50002"   # advertised in server.features; use array for multiple. Omit to advertise nothing.
@@ -204,7 +337,33 @@ connect = true
 # ssl = "ssl://0.0.0.0:50002"    # SSL listener bind URL; omit to disable
 # sslCert = "cert.pem"           # PEM certificate (chain allowed); bare filename resolves under Frigate's home dir, or use an absolute path
 # sslKey  = "key.pem"            # PEM-encoded PKCS#8 private key; bare filename resolves under Frigate's home dir, or use an absolute path
+# sslReloadSeconds = 300         # how often to check the certificate and key files, reloading them without a restart when renewed;
+#                                # 0 or less uses the default (reloading does nothing unless the files change)
+# donationAddress = ""           # address served for server.donation_address
+# bannerFile = "banner.txt"      # text served for server.banner (re-read when changed); bare filename resolves under Frigate's home dir
+# adminPort = 50003              # loopback-only admin JSON-RPC port offering getinfo, for health checks; 0 or absent disables it
+# shutdownDrainSeconds = 10      # on shutdown, how long sessions may take to finish the request they are handling
+# healthStatsEnabled = true      # log backend and index health every 5 minutes, without counts (usage is logged hourly, per [scan] metricsEnabled)
 # backendElectrumServer = "tcp://localhost:60001"   # backend must listen on a port distinct from Frigate's tcp/ssl listeners above
+# backendRequestTimeoutSeconds = 120                # per-request timeout on each session's backend connection; expiry closes that connection
+# backendReconnectMaxBackoffSeconds = 60            # maximum delay between attempts to reconnect a session's lost backend connection
+# backendPingIntervalSeconds = 60                   # keepalive ping on a session's idle backend connection
+# backendSslCertFile = "backend.pem"                # pin an ssl:// backend to exactly this PEM certificate (overrides backendSslVerify)
+# backendSslVerify = false                          # verify an ssl:// backend's certificate against trusted CAs and its hostname
+
+[limits]
+# maxConnections = 1000                # global concurrent session cap
+# maxConnectionsPerIp = 12             # per client IP (IPv6: per /64)
+# maxRequestBytes = 1000000            # max JSON-RPC line length; oversized requests disconnect
+# maxBatchSize = 345                   # max requests per JSON-RPC batch array
+# sessionTimeoutSeconds = 600          # idle disconnect; Electrum clients ping every ~60s
+# maxSubscriptionsPerIp = 75000        # scripthash subscriptions per client IP
+# maxSubscriptions = 10000000          # global scripthash subscription cap
+# notificationQueueSize = 1000         # notifications (headers, silent payments) a client may fall behind before it is disconnected;
+#                                      # raise for clients on slow links receiving very large silent payments scans
+# silentPaymentsSubscribeBurst = 10              # silent payments subscribes a session may make at once
+# silentPaymentsSubscribeIntervalSeconds = 10    # then one per interval; subscribes beyond the burst are delayed, never rejected
+# excludedSubnets = ["127.0.0.1/32", "::1/128"]   # clients exempt from per-IP limits, the batch cap and pacing; add your LAN for a home server
 ```
 
 ### Core
@@ -255,6 +414,7 @@ Requests exceeding either limit are rejected with a JSON-RPC `-32602 Invalid par
 
 When `metricsEnabled` is true (default), Frigate emits one `Aggregate SP scan stats` log line per hour summarising historical scan throughput across all scans in the window.
 The output is bucketed by result count and duration, rounded, and suppresses any bucket with fewer than ten samples, so no per-client scan information is exposed. Set to `false` to disable the line entirely.
+The same setting controls the hourly `Aggregate server stats` line described in [Stats](#stats).
 
 ### Server
 
@@ -280,6 +440,37 @@ Because Frigate occupies the canonical 50001/50002 Electrum ports, a co-located 
 The Electrum protocol from 1.3 to 1.6 is supported — for 1.6, ensure Bitcoin Core 28 or higher.
 
 When `backendElectrumServer` is set, also configure `zmqSequenceEndpoint` under `[core]` — see the [Core](#core) section above for why this pairing matters.
+
+Each client session has its own connection to the backend, opened when the client connects and closed when it disconnects, so the backend frees the session's subscriptions exactly as it would for a directly connected client.
+If a session's backend connection is lost, Frigate reconnects with exponential backoff (up to `backendReconnectMaxBackoffSeconds`), negotiates the client's protocol version again and resubscribes the session's scripthashes.
+Any status that changed while the connection was down is then sent to the client, which stays connected throughout.
+While the backend is unreachable, requests that need it fail at once with a `-32000` error.
+A request the backend has not answered within `backendRequestTimeoutSeconds` (default 120) fails with the same error and closes that connection, which is then reconnected.
+An idle backend connection is kept alive with a `server.ping` every `backendPingIntervalSeconds` (default 60).
+
+For an `ssl://` backend, Frigate accepts any certificate by default, which suits a localhost backend with a self-signed certificate, and logs a warning at startup.
+Set `backendSslCertFile` to pin the backend to exactly that PEM certificate, the usual approach for a remote backend with a self-signed certificate.
+Alternatively, set `backendSslVerify = true` to require a certificate issued by a certificate authority the JVM trusts, and matching the backend's hostname.
+Both settings are ignored, with a warning, when the backend is not `ssl://`.
+
+`server.donation_address` returns `donationAddress`, or an empty string if it is not set, rather than the backend's address.
+`server.banner` returns the contents of `bannerFile` if one is set (up to 16 KB, re-read when it changes), and otherwise a generated banner.
+
+### Limits
+
+The settings under `[limits]` protect Frigate when it is open to the public, and their defaults are chosen for a public server, following Fulcrum and ElectrumX where they have equivalents.
+
+- **Connections**: at most `maxConnections` sessions in total, and `maxConnectionsPerIp` per client IP address (per /64 prefix for IPv6). A connection over either limit is closed without a response.
+- **Requests**: a request longer than `maxRequestBytes` is answered with a `-32600 request too large` error and the connection is closed. A batch of more than `maxBatchSize` requests is rejected whole with a `-32600 batch too large` error, and the session continues. A request containing control characters is answered with a `-32700` parse error.
+- **Pacing**: each `blockchain.silentpayments.subscribe` starts a scan of the index, so a session may make `silentPaymentsSubscribeBurst` subscribes at once, and then one every `silentPaymentsSubscribeIntervalSeconds`. With the defaults, that is 10 at once and then one every 10 seconds. Subscribes beyond this are delayed rather than rejected. Other requests are not paced.
+- **Subscriptions**: scripthash subscriptions are limited per IP (`maxSubscriptionsPerIp`) and in total (`maxSubscriptions`). A subscription over either limit is refused with a `-32005 subscription limit exceeded` error; subscribing again to a scripthash the session already has is not counted.
+- **Idle sessions**: a session from which nothing is received for `sessionTimeoutSeconds` is closed. Electrum clients ping about every minute, so only dead or abandoned sessions are affected.
+- **Slow clients**: a client that falls `notificationQueueSize` notifications behind is disconnected. Scripthash status notifications are coalesced, so this is reached through header and silent payments notifications; raise it for clients on slow links receiving very large silent payments scans.
+
+Clients connecting from the subnets in `excludedSubnets` are exempt from the per-IP limits, the batch cap and pacing, though not from the overall limits (`maxConnections` and `maxSubscriptions`) or the protections above against oversized requests and slow clients.
+The default is the loopback address, so local tools such as the Frigate CLI are not limited, and clients of a server offered over Tor, which all arrive from the loopback address, are treated in the same way.
+For a home server, add your local network, for example `excludedSubnets = ["127.0.0.1/32", "::1/128", "192.168.0.0/16"]`.
+Set `excludedSubnets = []` to apply every limit to all clients, including those behind a reverse proxy on the same host, which also arrive from the loopback address.
 
 ## Usage
 
@@ -409,6 +600,11 @@ WantedBy=multi-user.target
 For public deployments, supply a real certificate via `sslCert` and `sslKey` rather than the self-signed example in [Configuration > Server](#server).
 The `host` field under `[server]` is advertised in `server.features` and should match the hostname clients use when validating the certificate.
 TLS termination at a reverse proxy is also supported – in that case, run Frigate with `tcp = "tcp://127.0.0.1:50001"` and terminate TLS upstream.
+Note that clients then all appear to come from the loopback address, which is in the default `excludedSubnets` (see [Limits](#limits)).
+
+Frigate checks the certificate and key files every `sslReloadSeconds` (default 300) and reloads them when they change, so a renewed certificate (from certbot, for example) is served without a restart.
+New connections use the new certificate, while existing ones are unaffected.
+If the files are incomplete when checked, or the key does not match the certificate, Frigate keeps serving the current certificate, logs a warning, and tries again when the files change.
 
 ### Resource Requirements
 
@@ -430,6 +626,21 @@ Indexing time depends on RPC throughput from Bitcoin Core.
 Logs are written to `frigate.log` in the per-network data directory (`~/.frigate/` for mainnet, `~/.frigate/<network>/` otherwise) and to stdout. 
 The default appender does not rotate; in production, configure `logrotate` or run under a service manager that captures stdout (e.g. `systemd-journald`).
 
+### Stats
+
+Frigate logs two stats lines, kept apart so that what is logged frequently cannot expose individual clients:
+
+- Every 5 minutes, a `Server health` line reports whether the backend is connected for all, some or no sessions, any backend reconnects or request timeouts since the previous line, the index height (or whether it is at the chain tip) and the mempool size. It contains no counts of sessions or subscriptions. Set `healthStatsEnabled = false` under `[server]` to disable it.
+- Every hour, when `metricsEnabled` is true under `[scan]`, an `Aggregate server stats` line reports the sessions, IP addresses and subscriptions connected at that moment, and over the hour the notifications delivered, the largest notification backlog, and the silent payments subscribes delayed by [pacing](#limits). As with the scan stats, each figure is rounded to the nearest ten and omitted below ten.
+
+For health checks from monitoring tools, set `adminPort` under `[server]` to enable a JSON-RPC admin endpoint, which is always bound to the loopback address.
+Its single `getinfo` method returns the version, network, uptime, effective limits and the same health figures, with usage figures rounded as in the hourly line.
+It deliberately offers nothing about individual sessions.
+
+```shell
+echo '{"jsonrpc":"2.0","id":1,"method":"getinfo","params":[]}' | nc -w 2 127.0.0.1 50003
+```
+
 ### Backup
 
 The tweak index can be rebuilt from Bitcoin Core at any time, but a rebuild from Taproot activation is slow. To minimise downtime, snapshot `db/frigate.duckdb` under the data directory while Frigate is stopped (DuckDB files are portable across operating systems and survive unclean shutdowns). 
@@ -439,6 +650,9 @@ The `config.toml` and any TLS material in the data directory are worth including
 
 Stop Frigate, install the new release, start. 
 The DuckDB file format and the on-disk index schema are stable across Frigate releases.
+
+On shutdown, Frigate stops accepting connections and closes idle sessions at once, while sessions handling a request finish it, for up to `shutdownDrainSeconds` (default 10), before closing.
+Each session's backend connection is closed with it, and the indexes are closed only after every session has ended.
 
 ### Reorgs
 

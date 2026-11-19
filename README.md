@@ -1,7 +1,9 @@
 
 # Fork Changes
 
-This fork adds a Docker image and testing utilities on top of [sparrowwallet/frigate](https://github.com/sparrowwallet/frigate).
+This branch contains only the Docker packaging for [sparrowwallet/frigate](https://github.com/sparrowwallet/frigate).
+It holds no Frigate source code. The image installs the signed upstream release, so for the source, issues
+and releases go to the upstream repository.
 
 > **Only use for testing!** The Docker files and other changes in this repo were written with the help of Claude.
 
@@ -10,12 +12,11 @@ This fork adds a Docker image and testing utilities on top of [sparrowwallet/fri
   (pinned fingerprint `D4D0 D320 2FC0 6849 A257  B38D E946 1833 4C67 4B40`) and checks the tarball's
   sha256 against that manifest. If either check fails, the build fails.
 - **[docker-compose.yml](docker-compose.yml)**: example service with the full `config.toml` reference for Frigate 1.6.1.
-- **[testrpc.py](testrpc.py)**: tests the Electrum RPC endpoint over plain TCP and SSL.
-- `settings.gradle`: adds `gradlePluginPortal` (only relevant when building from source).
 
 The upstream documentation further down this page is copied from the
 [1.6.1](https://github.com/sparrowwallet/frigate/releases/tag/1.6.1) release, matching the version the Docker
 image installs. See the [upstream README](https://github.com/sparrowwallet/frigate#readme) for unreleased changes.
+Files it refers to (such as `benchmark.py` or the build instructions) are in the upstream repository, not here.
 
 ## Docker image
 

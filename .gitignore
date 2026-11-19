@@ -1,10 +1,6 @@
-.idea
-.gradle
-*iml
+# local Docker build output and editor files
 build
-/*.properties
-out
+.idea
 *.log
-build-*.sh
 .DS_Store
 CLAUDE.md

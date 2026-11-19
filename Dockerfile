@@ -87,10 +87,12 @@ WORKDIR /home/frigate
 # Electrum TCP (default) and SSL (if enabled in config.toml)
 EXPOSE 50001 50002
 
-# Checks the Electrum TCP listener accepts connections. Adjust or disable if
-# you run SSL only or bind a different port. start-period allows for startup.
+# Checks that the Electrum listener accepts TCP connections on HEALTHCHECK_PORT.
+# Set it to match your [server] tcp/ssl port (a TCP connect works for either),
+# e.g. `-e HEALTHCHECK_PORT=60011`. start-period allows for startup.
+ENV HEALTHCHECK_PORT=50001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=2m --retries=3 \
-    CMD bash -c '</dev/tcp/127.0.0.1/50001' || exit 1
+    CMD bash -c '</dev/tcp/127.0.0.1/${HEALTHCHECK_PORT}' || exit 1
 
 # CMD (not ENTRYPOINT) so compose `command: frigate --level DEBUG` and
 # `docker run <image> frigate-cli ...` both work.

@@ -31,7 +31,7 @@ Latest image: `docker.io/levinster82/frigate:latest`
 | Ports | 50001 (TCP), 50002 (SSL, if enabled in config) |
 | Included tools | `frigate`, `frigate-cli` |
 | GPU | NVIDIA via CUDA only. Intel/AMD (OpenCL) are not included; `computeBackend = "AUTO"` falls back to CPU |
-| Healthcheck | TCP connect to port 50001 |
+| Healthcheck | TCP connect to `HEALTHCHECK_PORT` (default 50001; set it if you change the listener port) |
 
 ### Build
 
@@ -61,9 +61,10 @@ services:
     # Optional command: to modify init defaults.
     # command: frigate --level DEBUG --network testnet
 
-    # Optional Java environment options.
+    # Optional environment options.
     # environment:
     #   - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=80.0
+    #   - HEALTHCHECK_PORT=50001   # set to your Electrum tcp/ssl port if not 50001
 
     ports:
       - "50001:50001"

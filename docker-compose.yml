@@ -6,9 +6,10 @@ services:
     # Optional command: to modify init defaults.
     # command: frigate --level DEBUG --network testnet
 
-    # Optional Java environment options.
+    # Optional environment options.
     # environment:
     #   - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=80.0
+    #   - HEALTHCHECK_PORT=50001   # set to your Electrum tcp/ssl port if not 50001
 
     ports:
       - "50001:50001"
